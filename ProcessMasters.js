@@ -69,6 +69,7 @@ function ProcessMasters() {
         // ---------------------------------------------------------------
         for (var i = windows.length - 1; i >= 0; --i) {
             window = windows[i];
+            console.noteln("Scanning: " + filePath  + " | Opened window: " + window.mainView.id);
 
             // ---------------------------------------------------------------
             // ImageWindow.mainView - Property
@@ -81,7 +82,7 @@ function ProcessMasters() {
 
             if (id.indexOf("crop_mask") >= 0) {
                 // console.writeln() - Writes message to Process Console
-                console.noteln("Closing crop_mask window: " + window.mainView.id);
+                console.noteln("Closing crop_mask window");
 
                 // ---------------------------------------------------------------
                 // ImageWindow.forceClose() - PJSR ImageWindow API
@@ -117,7 +118,7 @@ function ProcessMasters() {
             // Build output path: same directory, new filename
             var outPath = dir + "/" + filter + ".xisf";
 
-            console.noteln("Found image for: " + fileName + " → " + filter + ".xisf");
+            console.noteln("Saving image: " + fileName + " → " + filter + ".xisf");
 
             // Setting this renames the view in the workspace
             window.mainView.id = filter;
@@ -133,7 +134,6 @@ function ProcessMasters() {
             // ImageWindow.saveAs() - PJSR ImageWindow API
             // Saves the image to a new file path
             // ---------------------------------------------------------------
-            console.noteln("Saving image: " + outPath);
             window.saveAs(outPath, false, false, false, false);
 
             if (allowedFilters.indexOf(filter) >= 0) {
@@ -150,73 +150,96 @@ function ProcessMasters() {
         return state.lastWindow;
     };
 
-    this.saveStarXterminatorImages = function (window, dir, prefix) {
-        // Find and save the star and starless images created by StarXTerminator.
+    this.findWindowById = function (id) {
         for (var i = 0; i < ImageWindow.windows.length; ++i) {
             var currentWindow = ImageWindow.windows[i];
-            if (currentWindow.mainView.id === prefix + "_stars") {
-                var starsOutPath = dir + "/" + prefix + "_stars.xisf";
-                currentWindow.saveAs(starsOutPath, false, false, false, false);
-                console.noteln("Saved extracted stars image: " + prefix + "_stars.xisf");
-                continue;
+            if (currentWindow.mainView.id === id) {
+                return currentWindow;
             }
-
-            currentWindow.mainView.id = prefix + "_starless";
-            var starlessOutPath = dir + "/" + prefix + "_starless.xisf";
-            currentWindow.saveAs(starlessOutPath, false, false, false, false);
-            console.noteln("Saved starless image: " + prefix + "_starless.xisf");
         }
+        return null;
+    };
+
+    this.saveTIFF = function (window, fileName) {
+        var outPath = dir + "/" + fileName + ".tif";
+        if (File.exists(outPath))
+            File.remove(outPath);
+
+        var tifWindow = duplicateImageWindow(window);
+
+        tifWindow.setSampleFormat( 16, false ); // bitsPerSample=16, floatSample=false
+
+        tifWindow.saveAs(outPath, false, false, false, false);
     };
 
     this.processRGBWindow = function (rgbWindow, dir) {
+        console.noteln("Processing RGB window.");
+
         if (rgbWindow == null)
-            return null;
+            return null;       
+
+        var fileBaseName = "RGB";
 
         if (this.runSPCC) {
-            console.noteln("Running SPCC on combined RGB image.");
             if (RunSPCC(rgbWindow)) {
                 console.noteln("SPCC completed successfully.");
+                
+                rgbWindow.mainView.id += "_spcc";
+                fileBaseName += "_spcc";
+                var outPath = dir + "/" + fileBaseName + ".xisf";
+                rgbWindow.saveAs(outPath, false, false, false, false);
             } else {
                 console.warningln("SPCC failed on: " + rgbWindow.mainView.id + ". Aborting further processing.");
                 return null;
             }
         }
 
-        var outPath = dir + "/RGB_spcc.xisf";
-        rgbWindow.saveAs(outPath, false, false, false, false);
-
-
         if (this.runBlurXterminatorFull) {
-            console.noteln("Running BlurXTerminator full.");
             if (RunBlurXterminatorFull(rgbWindow)) {
                 console.noteln("BlurXTerminator full completed successfully on RGB image.");
+                
+                rgbWindow.mainView.id += "_bxt";
+                fileBaseName += "_bxt";
+                var outPath = dir + "/" + fileBaseName + ".xisf";
+                rgbWindow.saveAs(outPath, false, false, false, false);
             } else {
                 console.warningln("BlurXTerminator full failed on: " + rgbWindow.mainView.id + ". Aborting further processing.");
                 return null;
             }
         }
 
-        var outPath = dir + "/RGB_spcc_bxt.xisf";
-        rgbWindow.saveAs(outPath, false, false, false, false);
-
         if (this.runNoiseXterminator) {
-            console.noteln("Running NoiseXTerminator.");
             if (RunNoiseXterminator(rgbWindow)) {
                 console.noteln("NoiseXTerminator completed successfully on RGB image.");
+                
+                rgbWindow.mainView.id += "_nxt";
+                fileBaseName += "_nxt";
+                var outPath = dir + "/" + fileBaseName + ".xisf";
+                rgbWindow.saveAs(outPath, false, false, false, false);
             } else {
                 console.warningln("NoiseXTerminator failed on: " + rgbWindow.mainView.id + ". Aborting further processing.");
                 return null;
             }
         }
 
-        var outPath = dir + "/RGB_spcc_bxt_nxt.xisf";
-        rgbWindow.saveAs(outPath, false, false, false, false);
-
         if (this.runStarXterminator) {
-            console.noteln("Running StarXTerminator on RGB image.");
             if (RunStarXterminator(rgbWindow, true)) {
                 console.noteln("StarXTerminator completed successfully on RGB image.");
-                this.saveStarXterminatorImages(rgbWindow, dir, "RGB");
+                rgbWindow.mainView.id += "_starless";
+                var outPath = dir + "/" + fileBaseName + "starless" + ".xisf";
+                console.noteln("Saving RGB starless image: " + fileBaseName + "starless" + ".xisf");
+                rgbWindow.saveAs(outPath, false, false, false, false);
+
+                var starsWindow = this.findWindowById(fileBaseName + "_stars");
+
+                if (starsWindow) {                    
+                    var starsFilename = fileBaseName + "_stars";
+                    var outPath = dir + "/" + starsFilename + ".xisf";
+                    console.noteln("Saving RGB stars image: " + starsFilename + ".xisf");
+                    starsWindow.saveAs(outPath, false, false, false, false);
+                } else {
+                    console.warningln("Could not find stars image created by StarXTerminator for RGB image.");
+                }
             } else {
                 console.warningln("StarXTerminator failed on: " + rgbWindow.mainView.id);
                 return null;
@@ -227,37 +250,58 @@ function ProcessMasters() {
     };
 
     this.processSHOWindow = function (shoWindow, dir) {
+        console.noteln("Processing SHO window.");
+
         if (shoWindow == null)
             return null;
 
+        var fileBaseName = "SHO";
+
         if (this.runBlurXterminatorFull) {
-            console.noteln("Running BlurXTerminator full.");
             if (RunBlurXterminatorFull(shoWindow)) {
                 console.noteln("BlurXTerminator full completed successfully on SHO image.");
+
+                shoWindow.mainView.id += "_bxt";
+                fileBaseName += "_bxt";
+                var outPath = dir + "/" + fileBaseName + ".xisf";
+                shoWindow.saveAs(outPath, false, false, false, false);
             } else {
                 console.warningln("BlurXTerminator full failed on: " + shoWindow.mainView.id + ". Aborting further processing.");
                 return null;
             }
-        }
-
+        }        
+        
         if (this.runNoiseXterminator) {
-            console.noteln("Running NoiseXTerminator.");
             if (RunNoiseXterminator(shoWindow)) {
                 console.noteln("NoiseXTerminator completed successfully on SHO image.");
+                shoWindow.mainView.id += "_nxt";
+                fileBaseName += "_nxt";
+                var outPath = dir + "/" + fileBaseName + ".xisf";
+                shoWindow.saveAs(outPath, false, false, false, false);
             } else {
                 console.warningln("NoiseXTerminator failed on: " + shoWindow.mainView.id + ". Aborting further processing.");
                 return null;
             }
         }
 
-        var outPath = dir + "/SHO.xisf";
-        shoWindow.saveAs(outPath, false, false, false, false);
-
         if (this.runStarXterminator) {
-            console.noteln("Running StarXTerminator on SHO image.");
             if (RunStarXterminator(shoWindow, true)) {
                 console.noteln("StarXTerminator completed successfully on SHO image.");
-                this.saveStarXterminatorImages(shoWindow, dir, "SHO");
+                shoWindow.mainView.id += "_starless";                
+                var outPath = dir + "/" + fileBaseName + "starless" + ".xisf";
+                console.noteln("Saving SHO starless image: " + fileBaseName + "starless" + ".xisf");
+                shoWindow.saveAs(outPath, false, false, false, false);
+
+                var starsWindow = this.findWindowById(fileBaseName + "_stars");
+
+                if (starsWindow) {                    
+                    var starsFilename = fileBaseName + "_stars";
+                    var outPath = dir + "/" + starsFilename + ".xisf";
+                    console.noteln("Saving SHO stars image: " + starsFilename + ".xisf");
+                    starsWindow.saveAs(outPath, false, false, false, false);
+                } else {
+                    console.warningln("Could not find stars image created by StarXTerminator for SHO image.");
+                }
             } else {
                 console.warningln("StarXTerminator failed on: " + shoWindow.mainView.id);
                 return null;
@@ -268,6 +312,8 @@ function ProcessMasters() {
     };
 
     this.processLWindow = function (luminanceWindow, dir) {
+        console.noteln("Processing Luminance window.");
+
         if (luminanceWindow == null)
             return null;
 
@@ -280,6 +326,10 @@ function ProcessMasters() {
             }
         }
 
+        luminanceWindow.mainView.id = "L_bxt";
+        var outPath = dir + "/L_bxt.xisf";
+        luminanceWindow.saveAs(outPath, false, false, false, false);
+
         if (this.runNoiseXterminator) {
             if (RunNoiseXterminator(luminanceWindow)) {
                 console.noteln("NoiseXTerminator completed successfully on luminance window.");
@@ -289,7 +339,8 @@ function ProcessMasters() {
             }
         }
 
-        var outPath = dir + "/L.xisf";
+        luminanceWindow.mainView.id = "L_bxt_nxt";
+        var outPath = dir + "/L_bxt_nxt.xisf";
         luminanceWindow.saveAs(outPath, false, false, false, false);
 
         if (this.runStarXterminator) {
@@ -389,8 +440,6 @@ function ProcessMasters() {
             }
             
             if (this.runGraxpertBG) {
-                console.noteln("Running GraXpert Background Extraction on " + window.mainView.id + ".");
-
                 // This operation will overwrite the current image with the background extracted version
                 if (RunGraxpertBackgroundExtraction(window)) {
                     console.noteln("GraXpert background extraction completed successfully.");
@@ -401,7 +450,6 @@ function ProcessMasters() {
             } 
 
             if (this.runBlurXterminatorCorrectOnly) {
-                console.noteln("Running BlurXTerminator on " + window.mainView.id + ".");
                 if (RunBlurXterminatorCorrectOnly(window)) {
                     console.noteln("BlurXTerminator completed successfully.");
                 } else {
@@ -411,22 +459,20 @@ function ProcessMasters() {
             } 
 
             window.saveAs(processingState.lastOutPath, false, false, false, false);
-
             console.noteln("Saved after per channel processing: " + processingState.lastOutPath);
             // Makes the window visible in the PixInsight workspace
             window.show();
         }
 
-        console.noteln("***** Finished initial processing of individual channels.");
+        console.noteln("***** Finished processing of individual channels.");
 
         console.show(); // Ensure console is visible for the next steps since it sometimes closes on its own.
 
         // If we have R, G and B channels, combine them into an RGB image before running the rest of the processing steps. 
         // This could be our primary image or it may be used to generated stars for an SHO + RGB Stars composition.
         if (this.runChannelCombination && windowsByFilter["R"] && windowsByFilter["G"] && windowsByFilter["B"]) {
-            console.noteln("R, G & B channels processed successfully. Combining them into one image.");
-
             rgbWindow = CombineChannels("R", "G", "B");
+
             if (rgbWindow != null) {
                 rgbWindow.mainView.id = "RGB";
                 rgbWindow.windowTitle = "RGB";
@@ -439,9 +485,8 @@ function ProcessMasters() {
         }
         
         if (this.runChannelCombination && windowsByFilter["S"] && windowsByFilter["H"] && windowsByFilter["O"]) {
-            console.noteln("S, H & O channels processed successfully. Combining them into one image.");
-
             shoWindow = CombineChannels("S", "H", "O");
+
             if (shoWindow != null) {
                 shoWindow.mainView.id = "SHO";
                 shoWindow.windowTitle = "SHO";
@@ -487,7 +532,7 @@ function ProcessMasters() {
 // to keep the UI responsive. Not used in this script, but can be adapted
 
 function RunGraxpertBackgroundExtraction(window) {
-    // Set the active window to the one we want to process
+    console.noteln("Running GraXpert Background Extraction on " + window.mainView.id + ".");
 
     var P = new GraXpert;
     P.backgroundExtraction = true;
@@ -510,11 +555,12 @@ function RunGraxpertBackgroundExtraction(window) {
     P.deconvolutionObjectAIModel = "";
     P.deconvolutionStarsAIModel = "";
 
-    console.noteln("Invoking GraXpert");
     return P.executeOn(window.mainView);
 }
 
 function RunBlurXterminatorCorrectOnly(window) {
+    console.noteln("Running BlurXTerminator Correct Only on " + window.mainView.id + ".");
+
     var P = new BlurXTerminator;
     P.ai_file = "BlurXTerminator.4.pb";
     P.correct_only = true;
@@ -527,11 +573,12 @@ function RunBlurXterminatorCorrectOnly(window) {
     P.auto_nonstellar_psf = true;
     P.sharpen_nonstellar = 0.50;
 
-    console.noteln("Invoking BlurXTerminator");
     return P.executeOn(window.mainView);
 }
 
 function RunBlurXterminatorFull(window) {
+    console.noteln("Running BlurXTerminator Full on " + window.mainView.id + ".");
+    
     var P = new BlurXTerminator;
     P.ai_file = "BlurXTerminator.4.pb";
     P.correct_only = false;
@@ -544,11 +591,12 @@ function RunBlurXterminatorFull(window) {
     P.auto_nonstellar_psf = true;
     P.sharpen_nonstellar = 0.50;
 
-    console.noteln("Invoking BlurXTerminator");
     return P.executeOn(window.mainView);
 }
 
 function RunNoiseXterminator(window) {
+    console.noteln("Running NoiseXTerminator on " + window.mainView.id + ".");
+    
     var P = new NoiseXTerminator;
     P.ai_file = "NoiseXTerminator.3.pb";
     P.enable_color_separation = false;
@@ -561,11 +609,12 @@ function RunNoiseXterminator(window) {
     P.iterations = 2;
     P.detail = 0.15;
 
-    console.noteln("Invoking NoiseXTerminator");
     return P.executeOn(window.mainView);
 }
 
 function RunStarXterminator(window, stars) {
+    console.noteln("Running StarXTerminator on " + window.mainView.id + ".");
+
     var P = new StarXTerminator;
     P.ai_file = "StarXTerminator.11.pb";
     P.stars = stars;
@@ -577,6 +626,8 @@ function RunStarXterminator(window, stars) {
 }
 
 function RunSPCC(window) {
+    console.noteln("Running SPCC on " + window.mainView.id + ".");
+
     var P = new SpectrophotometricColorCalibration;
     P.applyCalibration = true;
     P.narrowbandMode = false;
@@ -642,6 +693,8 @@ function RunSPCC(window) {
 // to apply a multiscale stretch to an image.
 // ------------------------------------------------------------------------
 function RunMAS(window) {
+    console.noteln("Running MultiscaleAdaptiveStretch on " + window.mainView.id + ".");
+    
     var P = new MultiscaleAdaptiveStretch;
     P.aggressiveness = 0.50;
     P.targetBackground = 0.150;
@@ -668,6 +721,8 @@ function RunMAS(window) {
 // The script will combine them into a single RGB image using the ChannelCombination process.
 // -----------------------------------------------------------------------
 function CombineChannels(ch1, ch2, ch3) {
+    console.noteln("Running ChannelCombination on " + ch1 + ", " + ch2 + ", " + ch3 + ".");
+    
     var P = new ChannelCombination;
     P.colorSpace = ChannelCombination.prototype.RGB;
     P.channels = [ // enabled, id
@@ -682,7 +737,6 @@ function CombineChannels(ch1, ch2, ch3) {
     for (var i = 0; i < ImageWindow.windows.length; ++i)
         existingIds[ImageWindow.windows[i].mainView.id] = true;
 
-    console.noteln("Invoking ChannelCombination with channels: " + ch1 + ", " + ch2 + ", " + ch3);
     if (!P.executeGlobal())
         return null;
 
