@@ -55,6 +55,19 @@ If not run as Administrator, `deploy.sh` exits with an error.
 - Bash (for example Git Bash)
 - PowerShell available on PATH
 
+## Claude Skills
+
+This project includes local Claude skills under `.claude/skills`:
+
+- `brutal-honesty`: direct, no-flattery feedback.
+	- File: `.claude/skills/brutal-honesty/SKILL.md`
+- `design-highlights`: keeps a concise design summary for faster future onboarding.
+	- File: `.claude/skills/design-highlights/SKILL.md`
+
+Design context is stored in:
+
+- `.claude/design-highlights.md`
+
 ## License
 
 MIT. See `LICENSE`.

@@ -51,6 +51,8 @@ function ProcessMasters() {
     this.runBlurXterminatorFull = true;
     this.runNoiseXterminator = true;
     this.runStarXterminator = true;
+    this.runMultiscaleAdaptiveStretch = true;
+    this.saveTIFFs = true;
 
     var allowedFilters = "LRGBSHO".split("");
     var windowsByFilter = {};
@@ -160,16 +162,20 @@ function ProcessMasters() {
         return null;
     };
 
-    this.saveTIFF = function (window, fileName) {
-        var outPath = dir + "/" + fileName + ".tif";
-        if (File.exists(outPath))
-            File.remove(outPath);
-
+    this.saveTIFF = function (window, outPath) {
         var tifWindow = duplicateImageWindow(window);
+        if (tifWindow == null) {
+            console.warningln("Could not create a duplicate window for TIFF export: " + outPath);
+            return;
+        }
 
-        tifWindow.setSampleFormat( 16, false ); // bitsPerSample=16, floatSample=false
+        tifWindow.setSampleFormat(16, false); // bitsPerSample=16, floatSample=false
 
-        tifWindow.saveAs(outPath, false, false, false, false);
+        if (!tifWindow.saveAs(outPath, false, false, false, false)) {
+            console.warningln("Failed to save TIFF: " + outPath);
+        }
+
+        tifWindow.forceClose();
     };
 
     this.processRGBWindow = function (rgbWindow, dir) {
@@ -178,6 +184,7 @@ function ProcessMasters() {
         if (rgbWindow == null)
             return null;       
 
+        var resultWindows = [rgbWindow];
         var fileBaseName = "RGB";
 
         if (this.runSPCC) {
@@ -226,8 +233,8 @@ function ProcessMasters() {
             if (RunStarXterminator(rgbWindow, true)) {
                 console.noteln("StarXTerminator completed successfully on RGB image.");
                 rgbWindow.mainView.id += "_starless";
-                var outPath = dir + "/" + fileBaseName + "starless" + ".xisf";
-                console.noteln("Saving RGB starless image: " + fileBaseName + "starless" + ".xisf");
+                var outPath = dir + "/" + fileBaseName + "_starless" + ".xisf";
+                console.noteln("Saving RGB starless image: " + fileBaseName + "_starless" + ".xisf");
                 rgbWindow.saveAs(outPath, false, false, false, false);
 
                 var starsWindow = this.findWindowById(fileBaseName + "_stars");
@@ -237,6 +244,7 @@ function ProcessMasters() {
                     var outPath = dir + "/" + starsFilename + ".xisf";
                     console.noteln("Saving RGB stars image: " + starsFilename + ".xisf");
                     starsWindow.saveAs(outPath, false, false, false, false);
+                    resultWindows.push(starsWindow);
                 } else {
                     console.warningln("Could not find stars image created by StarXTerminator for RGB image.");
                 }
@@ -246,7 +254,7 @@ function ProcessMasters() {
             }
         }
 
-        return rgbWindow;
+        return resultWindows;
     };
 
     this.processSHOWindow = function (shoWindow, dir) {
@@ -255,6 +263,7 @@ function ProcessMasters() {
         if (shoWindow == null)
             return null;
 
+        var resultWindows = [shoWindow];
         var fileBaseName = "SHO";
 
         if (this.runBlurXterminatorFull) {
@@ -288,8 +297,8 @@ function ProcessMasters() {
             if (RunStarXterminator(shoWindow, true)) {
                 console.noteln("StarXTerminator completed successfully on SHO image.");
                 shoWindow.mainView.id += "_starless";                
-                var outPath = dir + "/" + fileBaseName + "starless" + ".xisf";
-                console.noteln("Saving SHO starless image: " + fileBaseName + "starless" + ".xisf");
+                var outPath = dir + "/" + fileBaseName + "_starless" + ".xisf";
+                console.noteln("Saving SHO starless image: " + fileBaseName + "_starless" + ".xisf");
                 shoWindow.saveAs(outPath, false, false, false, false);
 
                 var starsWindow = this.findWindowById(fileBaseName + "_stars");
@@ -299,6 +308,7 @@ function ProcessMasters() {
                     var outPath = dir + "/" + starsFilename + ".xisf";
                     console.noteln("Saving SHO stars image: " + starsFilename + ".xisf");
                     starsWindow.saveAs(outPath, false, false, false, false);
+                    resultWindows.push(starsWindow);
                 } else {
                     console.warningln("Could not find stars image created by StarXTerminator for SHO image.");
                 }
@@ -308,7 +318,7 @@ function ProcessMasters() {
             }
         }
 
-        return shoWindow;
+        return resultWindows;
     };
 
     this.processLWindow = function (luminanceWindow, dir) {
@@ -317,37 +327,53 @@ function ProcessMasters() {
         if (luminanceWindow == null)
             return null;
 
+        var resultWindows = [luminanceWindow];
+        var fileBaseName = "L";
+
         if (this.runBlurXterminatorFull) {
             if (RunBlurXterminatorFull(luminanceWindow)) {
                 console.noteln("BlurXTerminator full completed successfully on luminance window.");
+                luminanceWindow.mainView.id += "_bxt";
+                fileBaseName += "_bxt";
+                var outPath = dir + "/" + fileBaseName + ".xisf";
+                luminanceWindow.saveAs(outPath, false, false, false, false);
             } else {
                 console.warningln("BlurXTerminator full failed on luminance window.");
                 return null;
             }
         }
 
-        luminanceWindow.mainView.id = "L_bxt";
-        var outPath = dir + "/L_bxt.xisf";
-        luminanceWindow.saveAs(outPath, false, false, false, false);
-
         if (this.runNoiseXterminator) {
             if (RunNoiseXterminator(luminanceWindow)) {
                 console.noteln("NoiseXTerminator completed successfully on luminance window.");
+                luminanceWindow.mainView.id += "_nxt";
+                fileBaseName += "_nxt";
+                var outPath = dir + "/" + fileBaseName + ".xisf";
+                luminanceWindow.saveAs(outPath, false, false, false, false);
             } else {
                 console.warningln("NoiseXTerminator failed on luminance window.");
                 return null;
             }
         }
 
-        luminanceWindow.mainView.id = "L_bxt_nxt";
-        var outPath = dir + "/L_bxt_nxt.xisf";
-        luminanceWindow.saveAs(outPath, false, false, false, false);
-
         if (this.runStarXterminator) {
             if (RunStarXterminator(luminanceWindow, false)) {
                 console.noteln("StarXTerminator completed successfully on luminance window.");
-                outPath = dir + "/L_starless.xisf";
+                luminanceWindow.mainView.id += "_starless";
+                var outPath = dir + "/" + fileBaseName + "_starless" + ".xisf";
                 luminanceWindow.saveAs(outPath, false, false, false, false);
+
+                var starsWindow = this.findWindowById(fileBaseName + "_stars");
+
+                if (starsWindow) {                    
+                    var starsFilename = fileBaseName + "_stars";
+                    var outPath = dir + "/" + starsFilename + ".xisf";
+                    console.noteln("Saving Luminance stars image: " + starsFilename + ".xisf");
+                    starsWindow.saveAs(outPath, false, false, false, false);
+                    resultWindows.push(starsWindow);
+                } else {
+                    console.warningln("Could not find stars image created by StarXTerminator for Luminance image.");
+                }
             } else {
                 console.warningln("StarXTerminator failed on luminance window.");
                 return null;
@@ -502,16 +528,66 @@ function ProcessMasters() {
 
         // If we have an rgbWindow, we can run the optional processing steps on it.
         if (rgbWindow) {
-            rgbWindow = this.processRGBWindow(rgbWindow, dir);
-            if (!rgbWindow)
+            var rgbResults = this.processRGBWindow(rgbWindow, dir);
+            if (!rgbResults)
                 return;
+
+            // Iterate over the result windows and call the save tif method on each one. 
+            for (var i = 0; i < rgbResults.length; ++i) {
+                var resultWindow = rgbResults[i];
+
+                if (this.runMultiscaleAdaptiveStretch) {
+                    var mode = "general";
+                    if (resultWindow.mainView.id.indexOf("_starless") >= 0) {
+                        mode = "starless";
+                    } else if (resultWindow.mainView.id.indexOf("_stars") >= 0) {
+                        mode = "stars";
+                    } 
+                    
+                    if (RunMultiscaleAdaptiveStretch(resultWindow, mode)) {
+                        resultWindow.mainView.id += "_mas";
+                        console.noteln("MultiscaleAdaptiveStretch completed successfully on: " + resultWindow.mainView.id);
+                        var outPath = dir + "/" + resultWindow.mainView.id + ".xisf";
+                        resultWindow.saveAs(outPath, false, false, false, false);
+                    }
+                } 
+
+                console.noteln("Saving 16bit TIFF for: " + resultWindow.mainView.id);
+                var outPath = dir + "/" + resultWindow.mainView.id + ".tif";
+                this.saveTIFF(resultWindow, outPath);
+            }
         }
 
         // If we have an shoWindow, we can run the optional processing steps on it.
         if (shoWindow) {
-            shoWindow = this.processSHOWindow(shoWindow, dir);
-            if (!shoWindow)
+            var shoResults = this.processSHOWindow(shoWindow, dir);
+            if (!shoResults)
                 return;
+
+            // Iterate over the result windows, stretch image if specified, and call the save tif method on each one. 
+            for (var i = 0; i < shoResults.length; ++i) {
+                var resultWindow = shoResults[i];
+
+                if (this.runMultiscaleAdaptiveStretch) {
+                    var mode = "general";
+                    if (resultWindow.mainView.id.indexOf("_starless") >= 0) {
+                        mode = "starless";
+                    } else if (resultWindow.mainView.id.indexOf("_stars") >= 0) {
+                        mode = "stars";
+                    } 
+
+                    if (RunMultiscaleAdaptiveStretch(resultWindow, mode)) {
+                        resultWindow.mainView.id += "_mas";
+                        console.noteln("MultiscaleAdaptiveStretch completed successfully on: " + resultWindow.mainView.id);
+                        var outPath = dir + "/" + resultWindow.mainView.id + ".xisf";
+                        resultWindow.saveAs(outPath, false, false, false, false);
+                    }
+                } 
+
+                console.noteln("Saving 16bit TIFF for: " + resultWindow.mainView.id);
+                var outPath = dir + "/" + resultWindow.mainView.id + ".tif";
+                this.saveTIFF(resultWindow, outPath);
+            }
         }
 
         // Only process a luminance window if it was provided in the input files. This allows 
@@ -520,6 +596,28 @@ function ProcessMasters() {
             var luminanceWindow = this.processLWindow(windowsByFilter["L"], dir);
             if (!luminanceWindow)
                 return;
+
+                var resultWindow = luminanceWindow;
+
+                if (this.runMultiscaleAdaptiveStretch) {
+                    var mode = "general";
+                    if (resultWindow.mainView.id.indexOf("_starless") >= 0) {
+                        mode = "starless";
+                    } else if (resultWindow.mainView.id.indexOf("_stars") >= 0) {
+                        mode = "stars";
+                    } 
+
+                    if (RunMultiscaleAdaptiveStretch(resultWindow, mode)) {
+                        resultWindow.mainView.id += "_mas";
+                        console.noteln("MultiscaleAdaptiveStretch completed successfully on: " + resultWindow.mainView.id);
+                        var outPath = dir + "/" + resultWindow.mainView.id + ".xisf";
+                        resultWindow.saveAs(outPath, false, false, false, false);
+                    }
+                } 
+
+                console.noteln("Saving 16bit TIFF for: " + resultWindow.mainView.id);
+                var outPath = dir + "/" + resultWindow.mainView.id + ".tif";
+                this.saveTIFF(resultWindow, outPath);
         }
 
         console.noteln("*****   Processing complete.   *****");
@@ -527,7 +625,7 @@ function ProcessMasters() {
 }
 
 // -----------------------------------------------------------------------
-// RunGraxpertBackgrouyndExtraction(engine)
+// RunGraxpertBackgroundExtraction(engine)
 // Function to run the background extraction process in a separate thread
 // to keep the UI responsive. Not used in this script, but can be adapted
 
@@ -692,8 +790,8 @@ function RunSPCC(window) {
 // A simple script to demonstrate how to use the MultiscaleAdaptiveStretch process
 // to apply a multiscale stretch to an image.
 // ------------------------------------------------------------------------
-function RunMAS(window) {
-    console.noteln("Running MultiscaleAdaptiveStretch on " + window.mainView.id + ".");
+function RunMultiscaleAdaptiveStretch(window, mode) {
+    console.noteln("Running MultiscaleAdaptiveStretch on " + window.mainView.id + ". Mode: " + mode);
     
     var P = new MultiscaleAdaptiveStretch;
     P.aggressiveness = 0.50;
@@ -712,6 +810,20 @@ function RunMAS(window) {
     P.backgroundROIY0 = 0;
     P.backgroundROIWidth = 0;
     P.backgroundROIHeight = 0;
+
+    if (mode === "general") {
+        // Default settings are good for general use
+    } else if (mode === "stars") {
+        P.contrastRecovery = false;
+        P.dynamicRangeCompression = 1.0;
+        P.saturationAmount = 0.40;
+    } else if (mode === "starless") {
+        P.aggressiveness = 0.65;    
+        P.dynamicRangeCompression = 0.0;        
+        P.saturationAmount = 0.75;
+    } else {
+        console.warningln("Unknown mode: " + mode + ". Using default settings.");
+    }
 
     console.noteln("Invoking MultiscaleAdaptiveStretch");
     return P.executeOn(window.mainView);
@@ -748,6 +860,29 @@ function CombineChannels(ch1, ch2, ch3) {
     }
 
     return null; // shouldn't happen if executeGlobal() succeeded
+}
+
+function duplicateImageWindow(sourceWindow) {
+    if (sourceWindow == null)
+        return null;
+
+    if (!sourceWindow.filePath || sourceWindow.filePath.length === 0) {
+        console.warningln("Cannot duplicate an unsaved window: " + sourceWindow.mainView.id);
+        return null;
+    }
+
+    if (!File.exists(sourceWindow.filePath)) {
+        console.warningln("Cannot duplicate missing file: " + sourceWindow.filePath);
+        return null;
+    }
+
+    var windows = ImageWindow.open(sourceWindow.filePath);
+    if (windows.length === 0) {
+        console.warningln("Failed to duplicate window: " + sourceWindow.filePath);
+        return null;
+    }
+
+    return windows[0];
 }
 
 // -----------------------------------------------------------------------
@@ -1114,7 +1249,7 @@ function ProcessMastersDialog(engine) {
     };
 
     this.runChannelCombination_CheckBox = new CheckBox(this);
-    this.runChannelCombination_CheckBox.text = "Run Channel Combination";
+    this.runChannelCombination_CheckBox.text = "Run Channel Combination (R+G+B or S+H+O)";
     this.runChannelCombination_CheckBox.checked = this.engine.runChannelCombination;
     this.runChannelCombination_CheckBox.toolTip = "<p>Enable Channel Combination.</p>";
     this.runChannelCombination_CheckBox.onCheck = function (checked) {
@@ -1135,6 +1270,22 @@ function ProcessMastersDialog(engine) {
     this.runStarXterminator_CheckBox.toolTip = "<p>Enable StarXterminator.</p>";
     this.runStarXterminator_CheckBox.onCheck = function (checked) {
         this.dialog.engine.runStarXterminator = checked;
+    };
+
+    this.runMultiscaleAdaptiveStretch_CheckBox = new CheckBox(this);
+    this.runMultiscaleAdaptiveStretch_CheckBox.text = "Run MultiscaleAdaptiveStretch";
+    this.runMultiscaleAdaptiveStretch_CheckBox.checked = this.engine.runMultiscaleAdaptiveStretch;
+    this.runMultiscaleAdaptiveStretch_CheckBox.toolTip = "<p>Enable MultiscaleAdaptiveStretch.</p>";
+    this.runMultiscaleAdaptiveStretch_CheckBox.onCheck = function (checked) {
+        this.dialog.engine.runMultiscaleAdaptiveStretch = checked;
+    };
+
+    this.saveTIFFs_CheckBox = new CheckBox(this);
+    this.saveTIFFs_CheckBox.text = "Export TIFFs";
+    this.saveTIFFs_CheckBox.checked = this.engine.saveTIFFs;
+    this.saveTIFFs_CheckBox.toolTip = "<p>Export TIFF copies of processed result windows.</p>";
+    this.saveTIFFs_CheckBox.onCheck = function (checked) {
+        this.dialog.engine.saveTIFFs = checked;
     };
 
     // Layout for process options - vertical column of checkboxes
@@ -1158,6 +1309,8 @@ function ProcessMastersDialog(engine) {
     this.processOptions_GroupBox.sizer.add(this.runBlurXterminatorFull_CheckBox);
     this.processOptions_GroupBox.sizer.add(this.runNoiseXterminator_CheckBox);
     this.processOptions_GroupBox.sizer.add(this.runStarXterminator_CheckBox);
+    this.processOptions_GroupBox.sizer.add(this.runMultiscaleAdaptiveStretch_CheckBox);
+    this.processOptions_GroupBox.sizer.add(this.saveTIFFs_CheckBox);
     this.processOptions_GroupBox.sizer.addStretch();  // Push checkboxes to top
 
     // OK button - closes dialog and returns Dialog.ok status
