@@ -6,7 +6,7 @@
      </p>
   </description>
    <platform os="all" arch="noarch" version="1.9.3:1.9.3">
-      <package fileName="ProcessMasters-v1.0.4.zip"
+      <package fileName="updates/ProcessMasters-v1.0.4.zip"
                sha1="770f582d328d2d38121a66e042796448df6fa77b"
                type="script"
                releaseDate="20260705">
