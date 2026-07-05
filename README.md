@@ -1,6 +1,8 @@
 # ProcessMasters
 
-Simple PixInsight script deployment helper.
+Simple PixInsight script for post WBPP processing.
+
+![PixInsight script screenshot](screenshot.png)
 
 ## What the script does
 
@@ -16,9 +18,9 @@ In practical terms, it can:
 - Combine channels into `RGB` (R+G+B) and/or `SHO` (S+H+O) when available.
 - Run optional post-combination processing: SPCC (for RGB), BlurXTerminator full, NoiseXTerminator, and StarXTerminator.
 - Save outputs back to the source directory, including starless/stars variants where applicable.
+- Save TIFF images for import into tools like Affinity.
 
 ## How it works
-
 The script separates UI and processing logic.
 The dialog lets you choose input files and options, then the processing engine runs a staged workflow:
 
@@ -54,19 +56,6 @@ If not run as Administrator, `deploy.sh` exits with an error.
 - Windows
 - Bash (for example Git Bash)
 - PowerShell available on PATH
-
-## Claude Skills
-
-This project includes local Claude skills under `.claude/skills`:
-
-- `brutal-honesty`: direct, no-flattery feedback.
-	- File: `.claude/skills/brutal-honesty/SKILL.md`
-- `design-highlights`: keeps a concise design summary for faster future onboarding.
-	- File: `.claude/skills/design-highlights/SKILL.md`
-
-Design context is stored in:
-
-- `.claude/design-highlights.md`
 
 ## License
 

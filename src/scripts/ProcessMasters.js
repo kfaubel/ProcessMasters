@@ -59,6 +59,15 @@ function ProcessMasters() {
     var rgbWindow = null;
     var shoWindow = null;
 
+    /**
+     * Summary: Normalizes one opened master file by closing crop masks, mapping filter IDs, and saving renamed channel masters.
+     * Input: filePath (String), windows (ImageWindow[]), dir (String),
+     *        state (Object: { windowsByFilter: Object, lastWindow: ImageWindow|null, lastOutPath: String })
+     *        - windowsByFilter maps filter letters (L,R,G,B,H,S,O) to ImageWindow references
+     *        - lastWindow tracks the most recently processed non-crop window
+     *        - lastOutPath tracks the last XISF path written for per-channel output
+     * Output: ImageWindow|null (state.lastWindow after processing, or null on failure)
+     */
     this.StripCropMaskAndRenameMaster = function (filePath, windows, dir, state) {
         var window = null;
 
@@ -136,7 +145,8 @@ function ProcessMasters() {
             // ImageWindow.saveAs() - PJSR ImageWindow API
             // Saves the image to a new file path
             // ---------------------------------------------------------------
-            window.saveAs(outPath, false, false, false, false);
+            if (!this.saveWindowAsXISF(window, outPath, "renamed master"))
+                return null;
 
             if (allowedFilters.indexOf(filter) >= 0) {
                 state.windowsByFilter[filter] = window;
@@ -152,6 +162,11 @@ function ProcessMasters() {
         return state.lastWindow;
     };
 
+    /**
+     * Summary: Finds the currently open image window that matches a given view ID.
+     * Input: id (String)
+     * Output: ImageWindow|null
+     */
     this.findWindowById = function (id) {
         for (var i = 0; i < ImageWindow.windows.length; ++i) {
             var currentWindow = ImageWindow.windows[i];
@@ -162,8 +177,110 @@ function ProcessMasters() {
         return null;
     };
 
+    /**
+     * Summary: Saves a window as XISF with consistent logging and failure handling.
+     * Input: window (ImageWindow), outPath (String), description (String)
+     * Output: Boolean (true on successful save)
+     */
+    this.saveWindowAsXISF = function (window, outPath, description) {
+        // Centralized save wrapper so every write has consistent error handling.
+        if (!window.saveAs(outPath, false, false, false, false)) {
+            console.warningln("Failed to save " + description + ": " + outPath);
+            return false;
+        }
+
+        return true;
+    };
+
+    /**
+        * Summary: Appends a stage suffix to the window/file name and saves the stage result as XISF.
+     * Input: window (ImageWindow), fileBaseName (String), stageSuffix (String), dir (String), description (String)
+     * Output: String|null (next file base name, or null if save failed)
+     */
+    this.appendStageSuffixAndSave = function (window, fileBaseName, stageSuffix, dir, description) {
+        // Keep window IDs and filenames in sync with stage-based suffixes.
+        window.mainView.id += "_" + stageSuffix;
+        var nextBaseName = fileBaseName + "_" + stageSuffix;
+        var outPath = dir + "/" + nextBaseName + ".xisf";
+
+        if (!this.saveWindowAsXISF(window, outPath, description))
+            return null;
+
+        return nextBaseName;
+    };
+
+    /**
+     * Summary: Chooses a MultiscaleAdaptiveStretch mode from naming hints in a window ID.
+     * Input: windowId (String)
+     * Output: String ("general" | "starless" | "stars")
+     */
+    this.resolveStretchMode = function (windowId) {
+        // MAS tuning mode is inferred from the result window naming convention.
+        if (windowId.indexOf("_starless") >= 0)
+            return "starless";
+        if (windowId.indexOf("_stars") >= 0)
+            return "stars";
+        return "general";
+    };
+
+    /**
+     * Summary: Runs shared final output steps (optional MAS and TIFF export) for a result window set.
+     * Input: resultWindows (ImageWindow[]), dir (String)
+     * Output: Boolean (true when all finalize steps succeed)
+     */
+    this.finalizeResultWindows = function (resultWindows, dir) {
+        // Shared finalization stage for RGB/SHO/L outputs:
+        // 1) Optional MultiscaleAdaptiveStretch
+        // 2) Optional 16-bit TIFF export
+        for (var i = 0; i < resultWindows.length; ++i) {
+            var resultWindow = resultWindows[i];
+
+            if (this.runMultiscaleAdaptiveStretch) {
+                var mode = this.resolveStretchMode(resultWindow.mainView.id);
+                if (mode === "starless") {
+                    if (RunMultiscaleAdaptiveStretch(resultWindow, mode)) {
+                        resultWindow.mainView.id += "_mas";
+                        console.noteln("MultiscaleAdaptiveStretch completed successfully on: " + resultWindow.mainView.id);
+                        var masOutPath = dir + "/" + resultWindow.mainView.id + ".xisf";
+                        if (!this.saveWindowAsXISF(resultWindow, masOutPath, "MAS result"))
+                            return false;
+                    } else {
+                        console.warningln("MultiscaleAdaptiveStretch failed on: " + resultWindow.mainView.id);
+                        return false;
+                    }
+                } else if (mode === "stars") {
+                    if (RunStarStretch(resultWindow, mode)) {
+                        resultWindow.mainView.id += "_stretch";
+                        console.noteln("StarStretch completed successfully on: " + resultWindow.mainView.id);
+                        var stretchOutPath = dir + "/" + resultWindow.mainView.id + ".xisf";
+                        if (!this.saveWindowAsXISF(resultWindow, stretchOutPath, "StarStretch result"))
+                            return false;
+                    } else {
+                        console.warningln("StarStretch failed on: " + resultWindow.mainView.id);
+                        return false;
+                    }
+                }
+            }
+
+            if (this.saveTIFFs) {
+                console.noteln("Saving 16bit TIFF for: " + resultWindow.mainView.id);
+                var tifOutPath = dir + "/" + resultWindow.mainView.id + ".tif";
+                this.saveTIFF(resultWindow, tifOutPath);
+            }
+        }
+
+        return true;
+    };
+
+    /**
+     * Summary: Exports a non-destructive 16-bit TIFF copy by duplicating the source window first.
+     * Input: window (ImageWindow), outPath (String)
+     * Output: void
+     */
     this.saveTIFF = function (window, outPath) {
-        var tifWindow = duplicateImageWindow(window);
+        // Export on a duplicate so converting to 16-bit integer does not mutate the source window.
+        var fallbackDir = File.extractDrive(outPath) + File.extractDirectory(outPath);
+        var tifWindow = duplicateImageWindow(window, fallbackDir);
         if (tifWindow == null) {
             console.warningln("Could not create a duplicate window for TIFF export: " + outPath);
             return;
@@ -178,6 +295,11 @@ function ProcessMasters() {
         tifWindow.forceClose();
     };
 
+    /**
+     * Summary: Applies the configured RGB post-processing pipeline and returns generated result windows.
+     * Input: rgbWindow (ImageWindow), dir (String)
+     * Output: ImageWindow[]|null (processed result windows)
+     */
     this.processRGBWindow = function (rgbWindow, dir) {
         console.noteln("Processing RGB window.");
 
@@ -190,11 +312,10 @@ function ProcessMasters() {
         if (this.runSPCC) {
             if (RunSPCC(rgbWindow)) {
                 console.noteln("SPCC completed successfully.");
-                
-                rgbWindow.mainView.id += "_spcc";
-                fileBaseName += "_spcc";
-                var outPath = dir + "/" + fileBaseName + ".xisf";
-                rgbWindow.saveAs(outPath, false, false, false, false);
+
+                fileBaseName = this.appendStageSuffixAndSave(rgbWindow, fileBaseName, "spcc", dir, "RGB SPCC result");
+                if (fileBaseName == null)
+                    return null;
             } else {
                 console.warningln("SPCC failed on: " + rgbWindow.mainView.id + ". Aborting further processing.");
                 return null;
@@ -204,11 +325,10 @@ function ProcessMasters() {
         if (this.runBlurXterminatorFull) {
             if (RunBlurXterminatorFull(rgbWindow)) {
                 console.noteln("BlurXTerminator full completed successfully on RGB image.");
-                
-                rgbWindow.mainView.id += "_bxt";
-                fileBaseName += "_bxt";
-                var outPath = dir + "/" + fileBaseName + ".xisf";
-                rgbWindow.saveAs(outPath, false, false, false, false);
+
+                fileBaseName = this.appendStageSuffixAndSave(rgbWindow, fileBaseName, "bxt", dir, "RGB BlurXTerminator result");
+                if (fileBaseName == null)
+                    return null;
             } else {
                 console.warningln("BlurXTerminator full failed on: " + rgbWindow.mainView.id + ". Aborting further processing.");
                 return null;
@@ -218,11 +338,10 @@ function ProcessMasters() {
         if (this.runNoiseXterminator) {
             if (RunNoiseXterminator(rgbWindow)) {
                 console.noteln("NoiseXTerminator completed successfully on RGB image.");
-                
-                rgbWindow.mainView.id += "_nxt";
-                fileBaseName += "_nxt";
-                var outPath = dir + "/" + fileBaseName + ".xisf";
-                rgbWindow.saveAs(outPath, false, false, false, false);
+
+                fileBaseName = this.appendStageSuffixAndSave(rgbWindow, fileBaseName, "nxt", dir, "RGB NoiseXTerminator result");
+                if (fileBaseName == null)
+                    return null;
             } else {
                 console.warningln("NoiseXTerminator failed on: " + rgbWindow.mainView.id + ". Aborting further processing.");
                 return null;
@@ -235,7 +354,8 @@ function ProcessMasters() {
                 rgbWindow.mainView.id += "_starless";
                 var outPath = dir + "/" + fileBaseName + "_starless" + ".xisf";
                 console.noteln("Saving RGB starless image: " + fileBaseName + "_starless" + ".xisf");
-                rgbWindow.saveAs(outPath, false, false, false, false);
+                if (!this.saveWindowAsXISF(rgbWindow, outPath, "RGB starless result"))
+                    return null;
 
                 var starsWindow = this.findWindowById(fileBaseName + "_stars");
 
@@ -243,7 +363,8 @@ function ProcessMasters() {
                     var starsFilename = fileBaseName + "_stars";
                     var outPath = dir + "/" + starsFilename + ".xisf";
                     console.noteln("Saving RGB stars image: " + starsFilename + ".xisf");
-                    starsWindow.saveAs(outPath, false, false, false, false);
+                    if (!this.saveWindowAsXISF(starsWindow, outPath, "RGB stars result"))
+                        return null;
                     resultWindows.push(starsWindow);
                 } else {
                     console.warningln("Could not find stars image created by StarXTerminator for RGB image.");
@@ -257,6 +378,11 @@ function ProcessMasters() {
         return resultWindows;
     };
 
+    /**
+     * Summary: Applies the configured SHO post-processing pipeline and returns generated result windows.
+     * Input: shoWindow (ImageWindow), dir (String)
+     * Output: ImageWindow[]|null (processed result windows)
+     */
     this.processSHOWindow = function (shoWindow, dir) {
         console.noteln("Processing SHO window.");
 
@@ -270,10 +396,9 @@ function ProcessMasters() {
             if (RunBlurXterminatorFull(shoWindow)) {
                 console.noteln("BlurXTerminator full completed successfully on SHO image.");
 
-                shoWindow.mainView.id += "_bxt";
-                fileBaseName += "_bxt";
-                var outPath = dir + "/" + fileBaseName + ".xisf";
-                shoWindow.saveAs(outPath, false, false, false, false);
+                fileBaseName = this.appendStageSuffixAndSave(shoWindow, fileBaseName, "bxt", dir, "SHO BlurXTerminator result");
+                if (fileBaseName == null)
+                    return null;
             } else {
                 console.warningln("BlurXTerminator full failed on: " + shoWindow.mainView.id + ". Aborting further processing.");
                 return null;
@@ -283,10 +408,9 @@ function ProcessMasters() {
         if (this.runNoiseXterminator) {
             if (RunNoiseXterminator(shoWindow)) {
                 console.noteln("NoiseXTerminator completed successfully on SHO image.");
-                shoWindow.mainView.id += "_nxt";
-                fileBaseName += "_nxt";
-                var outPath = dir + "/" + fileBaseName + ".xisf";
-                shoWindow.saveAs(outPath, false, false, false, false);
+                fileBaseName = this.appendStageSuffixAndSave(shoWindow, fileBaseName, "nxt", dir, "SHO NoiseXTerminator result");
+                if (fileBaseName == null)
+                    return null;
             } else {
                 console.warningln("NoiseXTerminator failed on: " + shoWindow.mainView.id + ". Aborting further processing.");
                 return null;
@@ -299,7 +423,8 @@ function ProcessMasters() {
                 shoWindow.mainView.id += "_starless";                
                 var outPath = dir + "/" + fileBaseName + "_starless" + ".xisf";
                 console.noteln("Saving SHO starless image: " + fileBaseName + "_starless" + ".xisf");
-                shoWindow.saveAs(outPath, false, false, false, false);
+                if (!this.saveWindowAsXISF(shoWindow, outPath, "SHO starless result"))
+                    return null;
 
                 var starsWindow = this.findWindowById(fileBaseName + "_stars");
 
@@ -307,7 +432,8 @@ function ProcessMasters() {
                     var starsFilename = fileBaseName + "_stars";
                     var outPath = dir + "/" + starsFilename + ".xisf";
                     console.noteln("Saving SHO stars image: " + starsFilename + ".xisf");
-                    starsWindow.saveAs(outPath, false, false, false, false);
+                    if (!this.saveWindowAsXISF(starsWindow, outPath, "SHO stars result"))
+                        return null;
                     resultWindows.push(starsWindow);
                 } else {
                     console.warningln("Could not find stars image created by StarXTerminator for SHO image.");
@@ -321,6 +447,11 @@ function ProcessMasters() {
         return resultWindows;
     };
 
+    /**
+     * Summary: Applies the configured luminance post-processing pipeline and returns generated result windows.
+     * Input: luminanceWindow (ImageWindow), dir (String)
+     * Output: ImageWindow[]|null (processed result windows)
+     */
     this.processLWindow = function (luminanceWindow, dir) {
         console.noteln("Processing Luminance window.");
 
@@ -333,10 +464,9 @@ function ProcessMasters() {
         if (this.runBlurXterminatorFull) {
             if (RunBlurXterminatorFull(luminanceWindow)) {
                 console.noteln("BlurXTerminator full completed successfully on luminance window.");
-                luminanceWindow.mainView.id += "_bxt";
-                fileBaseName += "_bxt";
-                var outPath = dir + "/" + fileBaseName + ".xisf";
-                luminanceWindow.saveAs(outPath, false, false, false, false);
+                fileBaseName = this.appendStageSuffixAndSave(luminanceWindow, fileBaseName, "bxt", dir, "Luminance BlurXTerminator result");
+                if (fileBaseName == null)
+                    return null;
             } else {
                 console.warningln("BlurXTerminator full failed on luminance window.");
                 return null;
@@ -346,10 +476,9 @@ function ProcessMasters() {
         if (this.runNoiseXterminator) {
             if (RunNoiseXterminator(luminanceWindow)) {
                 console.noteln("NoiseXTerminator completed successfully on luminance window.");
-                luminanceWindow.mainView.id += "_nxt";
-                fileBaseName += "_nxt";
-                var outPath = dir + "/" + fileBaseName + ".xisf";
-                luminanceWindow.saveAs(outPath, false, false, false, false);
+                fileBaseName = this.appendStageSuffixAndSave(luminanceWindow, fileBaseName, "nxt", dir, "Luminance NoiseXTerminator result");
+                if (fileBaseName == null)
+                    return null;
             } else {
                 console.warningln("NoiseXTerminator failed on luminance window.");
                 return null;
@@ -361,7 +490,8 @@ function ProcessMasters() {
                 console.noteln("StarXTerminator completed successfully on luminance window.");
                 luminanceWindow.mainView.id += "_starless";
                 var outPath = dir + "/" + fileBaseName + "_starless" + ".xisf";
-                luminanceWindow.saveAs(outPath, false, false, false, false);
+                if (!this.saveWindowAsXISF(luminanceWindow, outPath, "Luminance starless result"))
+                    return null;
 
                 var starsWindow = this.findWindowById(fileBaseName + "_stars");
 
@@ -369,7 +499,8 @@ function ProcessMasters() {
                     var starsFilename = fileBaseName + "_stars";
                     var outPath = dir + "/" + starsFilename + ".xisf";
                     console.noteln("Saving Luminance stars image: " + starsFilename + ".xisf");
-                    starsWindow.saveAs(outPath, false, false, false, false);
+                    if (!this.saveWindowAsXISF(starsWindow, outPath, "Luminance stars result"))
+                        return null;
                     resultWindows.push(starsWindow);
                 } else {
                     console.warningln("Could not find stars image created by StarXTerminator for Luminance image.");
@@ -380,14 +511,20 @@ function ProcessMasters() {
             }
         }
 
-        return luminanceWindow;
+        return resultWindows;
     };
 
-    this.processEachChannelMaster = function () {
-
+    /**
+     * Summary: Opens and preprocesses all selected master files, then records normalized filter windows.
+     * Input: none (uses this.inputFiles)
+     * Output: String|null (output directory path)
+     */
+    this.processInputMasterFiles = function () {
+        // Stage 1: open and normalize selected master inputs (rename/filter mapping)
+        // and run per-channel preprocessing steps.
         if (this.inputFiles.length === 0) {
             console.warningln("No input files specified.  Aborting.");
-            return;
+            return null;
         }
 
         var dir = null;
@@ -397,62 +534,30 @@ function ProcessMasters() {
 
             console.noteln("***** Processing file: " + filePath + " *****");
 
-            console.show(); // This seems to close on its own sometimes.
+            console.show();
 
-            // ---------------------------------------------------------------
-            // File.exists(path) - PJSR File API
-            // ---------------------------------------------------------------
             if (!File.exists(filePath)) {
-                // console.warningln() - Writes warning message to Process Console
-                // Text appears in orange/yellow to indicate a warning
                 console.errorln("File not found: " + filePath + ". Skipping.");
-                return;
+                return null;
             }
 
-            // ---------------------------------------------------------------
-            // ImageWindow.open(filePath) - PJSR ImageWindow API
-            // Opens an image file and creates ImageWindow object(s)
-            // 
-            // Parameters:
-            //   filePath (String) - Full path to the image file
-            //
-            // Returns: Array of ImageWindow objects
-            //   - Returns array because XISF files can contain multiple images
-            //   - Each ImageWindow represents one image in the workspace
-            //   - Empty array if file cannot be opened
-            //
-            // Note: Supports formats like .xisf, .fit, .fits, .tif, .png, etc.
-            // ---------------------------------------------------------------
             console.noteln("Opening: " + filePath);
-
             var windows = ImageWindow.open(filePath);
             if (windows.length === 0) {
                 console.warningln("Failed to open: " + filePath + ". Skipping.");
-                return;
+                return null;
             }
 
-            // ---------------------------------------------------------------
-            // ImageWindow.filePath - Property
-            // Returns the file path associated with this window
-            // Empty string if the image hasn't been saved yet
-            // ---------------------------------------------------------------
-
-            // We rely on the file path of the first image file to determine the output directory for the processed files. 
-            // If we can't get a valid path, we should log a warning and skip processing this file.
             if (dir === null) {
                 var path = windows[0].filePath;
                 if (!path || path.length === 0) {
                     console.warningln("Cannot determine the path for the image file: " + windows[0].mainView.id + ". Aborting.");
-                    return;
-                } else {
-                    dir = File.extractDrive(path) + File.extractDirectory(path);
-                    console.noteln("Output directory set to: " + dir);
+                    return null;
                 }
-            }
 
-            // for (var i = windows.length - 1; i >= 0; --i) {
-            //     console.noteln("Scanning: " + filePath  + " | Opened window: " + windows[i].mainView.id);
-            // }
+                dir = File.extractDrive(path) + File.extractDirectory(path);
+                console.noteln("Output directory set to: " + dir);
+            }
 
             var processingState = {
                 windowsByFilter: windowsByFilter,
@@ -461,67 +566,89 @@ function ProcessMasters() {
             };
 
             var window = this.StripCropMaskAndRenameMaster(filePath, windows, dir, processingState);
-            if (window === null) {
-                return;
-            }
-            
+            if (window === null)
+                return null;
+
             if (this.runGraxpertBG) {
-                // This operation will overwrite the current image with the background extracted version
                 if (RunGraxpertBackgroundExtraction(window)) {
                     console.noteln("GraXpert background extraction completed successfully.");
                 } else {
                     console.warningln("GraXpert failed on: " + window.mainView.id);
-                    return;
+                    return null;
                 }
-            } 
+            }
 
             if (this.runBlurXterminatorCorrectOnly) {
                 if (RunBlurXterminatorCorrectOnly(window)) {
                     console.noteln("BlurXTerminator completed successfully.");
                 } else {
                     console.warningln("BlurXTerminator failed on: " + window.mainView.id);
-                    return;
+                    return null;
                 }
-            } 
+            }
 
-            window.saveAs(processingState.lastOutPath, false, false, false, false);
+            if (!this.saveWindowAsXISF(window, processingState.lastOutPath, "per-channel processing result"))
+                return null;
+
             console.noteln("Saved after per channel processing: " + processingState.lastOutPath);
-            // Makes the window visible in the PixInsight workspace
             window.show();
         }
 
         console.noteln("***** Finished processing of individual channels.");
+        return dir;
+    };
+
+    /**
+     * Summary: Combines three channel IDs into a single named window and saves the combined XISF result.
+     * Input: ch1 (String), ch2 (String), ch3 (String), combinedName (String), dir (String)
+     * Output: ImageWindow|null (combined channel window)
+     */
+    this.combineChannelSet = function (ch1, ch2, ch3, combinedName, dir) {
+        // Stage 2: combine three channel windows into a single RGB/SHO image.
+        var combinedWindow = CombineChannels(ch1, ch2, ch3);
+        if (combinedWindow == null) {
+            console.warningln(combinedName + " channel combination failed.");
+            return null;
+        }
+
+        combinedWindow.mainView.id = combinedName;
+        combinedWindow.windowTitle = combinedName;
+        var outPath = dir + "/" + combinedName + ".xisf";
+        if (!this.saveWindowAsXISF(combinedWindow, outPath, combinedName + " combined result"))
+            return null;
+
+        return combinedWindow;
+    };
+
+    /**
+     * Summary: Orchestrates the full workflow from per-channel preprocessing through optional combinations and finalization.
+     * Input: none (uses configured options and loaded input files)
+     * Output: void
+     */
+    this.processEachChannelMaster = function () {
+        // Pipeline overview:
+        // 1) Process individual channel masters
+        // 2) Optionally combine RGB/SHO
+        // 3) Run optional post-processing per output set
+        // 4) Finalize outputs (MAS/TIFF) consistently
+        var dir = this.processInputMasterFiles();
+        if (dir == null)
+            return;
 
         console.show(); // Ensure console is visible for the next steps since it sometimes closes on its own.
 
         // If we have R, G and B channels, combine them into an RGB image before running the rest of the processing steps. 
         // This could be our primary image or it may be used to generated stars for an SHO + RGB Stars composition.
         if (this.runChannelCombination && windowsByFilter["R"] && windowsByFilter["G"] && windowsByFilter["B"]) {
-            rgbWindow = CombineChannels("R", "G", "B");
-
-            if (rgbWindow != null) {
-                rgbWindow.mainView.id = "RGB";
-                rgbWindow.windowTitle = "RGB";
-                var outPath = dir + "/RGB.xisf";
-                rgbWindow.saveAs(outPath, false, false, false, false);
-            } else {
-                console.warningln("RGB channel combination failed.");
+            rgbWindow = this.combineChannelSet("R", "G", "B", "RGB", dir);
+            if (rgbWindow == null)
                 return;
-            }
         }
         
         if (this.runChannelCombination && windowsByFilter["S"] && windowsByFilter["H"] && windowsByFilter["O"]) {
-            shoWindow = CombineChannels("S", "H", "O");
-
-            if (shoWindow != null) {
-                shoWindow.mainView.id = "SHO";
-                shoWindow.windowTitle = "SHO";
-                var outPath = dir + "/SHO.xisf";
-                shoWindow.saveAs(outPath, false, false, false, false);
-            } else {
-                console.warningln("SHO channel combination failed.");
+            shoWindow = this.combineChannelSet("S", "H", "O", "SHO", dir);
+            if (shoWindow == null)
                 return;
-            }
         } 
 
         console.show(); // Ensure console is visible for the next steps since it sometimes closes on its own.
@@ -531,31 +658,8 @@ function ProcessMasters() {
             var rgbResults = this.processRGBWindow(rgbWindow, dir);
             if (!rgbResults)
                 return;
-
-            // Iterate over the result windows and call the save tif method on each one. 
-            for (var i = 0; i < rgbResults.length; ++i) {
-                var resultWindow = rgbResults[i];
-
-                if (this.runMultiscaleAdaptiveStretch) {
-                    var mode = "general";
-                    if (resultWindow.mainView.id.indexOf("_starless") >= 0) {
-                        mode = "starless";
-                    } else if (resultWindow.mainView.id.indexOf("_stars") >= 0) {
-                        mode = "stars";
-                    } 
-                    
-                    if (RunMultiscaleAdaptiveStretch(resultWindow, mode)) {
-                        resultWindow.mainView.id += "_mas";
-                        console.noteln("MultiscaleAdaptiveStretch completed successfully on: " + resultWindow.mainView.id);
-                        var outPath = dir + "/" + resultWindow.mainView.id + ".xisf";
-                        resultWindow.saveAs(outPath, false, false, false, false);
-                    }
-                } 
-
-                console.noteln("Saving 16bit TIFF for: " + resultWindow.mainView.id);
-                var outPath = dir + "/" + resultWindow.mainView.id + ".tif";
-                this.saveTIFF(resultWindow, outPath);
-            }
+            if (!this.finalizeResultWindows(rgbResults, dir))
+                return;
         }
 
         // If we have an shoWindow, we can run the optional processing steps on it.
@@ -563,61 +667,19 @@ function ProcessMasters() {
             var shoResults = this.processSHOWindow(shoWindow, dir);
             if (!shoResults)
                 return;
-
-            // Iterate over the result windows, stretch image if specified, and call the save tif method on each one. 
-            for (var i = 0; i < shoResults.length; ++i) {
-                var resultWindow = shoResults[i];
-
-                if (this.runMultiscaleAdaptiveStretch) {
-                    var mode = "general";
-                    if (resultWindow.mainView.id.indexOf("_starless") >= 0) {
-                        mode = "starless";
-                    } else if (resultWindow.mainView.id.indexOf("_stars") >= 0) {
-                        mode = "stars";
-                    } 
-
-                    if (RunMultiscaleAdaptiveStretch(resultWindow, mode)) {
-                        resultWindow.mainView.id += "_mas";
-                        console.noteln("MultiscaleAdaptiveStretch completed successfully on: " + resultWindow.mainView.id);
-                        var outPath = dir + "/" + resultWindow.mainView.id + ".xisf";
-                        resultWindow.saveAs(outPath, false, false, false, false);
-                    }
-                } 
-
-                console.noteln("Saving 16bit TIFF for: " + resultWindow.mainView.id);
-                var outPath = dir + "/" + resultWindow.mainView.id + ".tif";
-                this.saveTIFF(resultWindow, outPath);
-            }
+            if (!this.finalizeResultWindows(shoResults, dir))
+                return;
         }
 
         // Only process a luminance window if it was provided in the input files. This allows 
         // users to skip the luminance processing steps if they only have RGB channels.
         if (windowsByFilter["L"]) {
-            var luminanceWindow = this.processLWindow(windowsByFilter["L"], dir);
-            if (!luminanceWindow)
+            var luminanceResults = this.processLWindow(windowsByFilter["L"], dir);
+            if (!luminanceResults)
                 return;
 
-                var resultWindow = luminanceWindow;
-
-                if (this.runMultiscaleAdaptiveStretch) {
-                    var mode = "general";
-                    if (resultWindow.mainView.id.indexOf("_starless") >= 0) {
-                        mode = "starless";
-                    } else if (resultWindow.mainView.id.indexOf("_stars") >= 0) {
-                        mode = "stars";
-                    } 
-
-                    if (RunMultiscaleAdaptiveStretch(resultWindow, mode)) {
-                        resultWindow.mainView.id += "_mas";
-                        console.noteln("MultiscaleAdaptiveStretch completed successfully on: " + resultWindow.mainView.id);
-                        var outPath = dir + "/" + resultWindow.mainView.id + ".xisf";
-                        resultWindow.saveAs(outPath, false, false, false, false);
-                    }
-                } 
-
-                console.noteln("Saving 16bit TIFF for: " + resultWindow.mainView.id);
-                var outPath = dir + "/" + resultWindow.mainView.id + ".tif";
-                this.saveTIFF(resultWindow, outPath);
+            if (!this.finalizeResultWindows(luminanceResults, dir))
+                return;
         }
 
         console.noteln("*****   Processing complete.   *****");
@@ -629,6 +691,11 @@ function ProcessMasters() {
 // Function to run the background extraction process in a separate thread
 // to keep the UI responsive. Not used in this script, but can be adapted
 
+/**
+ * Summary: Runs GraXpert background extraction on a target window.
+ * Input: window (ImageWindow)
+ * Output: Boolean (true if process executed)
+ */
 function RunGraxpertBackgroundExtraction(window) {
     console.noteln("Running GraXpert Background Extraction on " + window.mainView.id + ".");
 
@@ -656,6 +723,11 @@ function RunGraxpertBackgroundExtraction(window) {
     return P.executeOn(window.mainView);
 }
 
+/**
+ * Summary: Runs BlurXTerminator in correct-only mode on a target window.
+ * Input: window (ImageWindow)
+ * Output: Boolean (true if process executed)
+ */
 function RunBlurXterminatorCorrectOnly(window) {
     console.noteln("Running BlurXTerminator Correct Only on " + window.mainView.id + ".");
 
@@ -674,6 +746,11 @@ function RunBlurXterminatorCorrectOnly(window) {
     return P.executeOn(window.mainView);
 }
 
+/**
+ * Summary: Runs full BlurXTerminator deconvolution/sharpening on a target window.
+ * Input: window (ImageWindow)
+ * Output: Boolean (true if process executed)
+ */
 function RunBlurXterminatorFull(window) {
     console.noteln("Running BlurXTerminator Full on " + window.mainView.id + ".");
     
@@ -692,6 +769,11 @@ function RunBlurXterminatorFull(window) {
     return P.executeOn(window.mainView);
 }
 
+/**
+ * Summary: Runs NoiseXTerminator noise reduction on a target window.
+ * Input: window (ImageWindow)
+ * Output: Boolean (true if process executed)
+ */
 function RunNoiseXterminator(window) {
     console.noteln("Running NoiseXTerminator on " + window.mainView.id + ".");
     
@@ -710,6 +792,11 @@ function RunNoiseXterminator(window) {
     return P.executeOn(window.mainView);
 }
 
+/**
+ * Summary: Runs StarXTerminator and controls whether stars are extracted/retained.
+ * Input: window (ImageWindow), stars (Boolean)
+ * Output: Boolean (true if process executed)
+ */
 function RunStarXterminator(window, stars) {
     console.noteln("Running StarXTerminator on " + window.mainView.id + ".");
 
@@ -723,6 +810,11 @@ function RunStarXterminator(window, stars) {
     return P.executeOn(window.mainView);
 }
 
+/**
+ * Summary: Runs SpectrophotometricColorCalibration (SPCC) using the configured calibration profile.
+ * Input: window (ImageWindow)
+ * Output: Boolean (true if process executed)
+ */
 function RunSPCC(window) {
     console.noteln("Running SPCC on " + window.mainView.id + ".");
 
@@ -790,6 +882,11 @@ function RunSPCC(window) {
 // A simple script to demonstrate how to use the MultiscaleAdaptiveStretch process
 // to apply a multiscale stretch to an image.
 // ------------------------------------------------------------------------
+/**
+ * Summary: Runs MultiscaleAdaptiveStretch using mode-specific parameter presets.
+ * Input: window (ImageWindow), mode (String)
+ * Output: Boolean (true if process executed)
+ */
 function RunMultiscaleAdaptiveStretch(window, mode) {
     console.noteln("Running MultiscaleAdaptiveStretch on " + window.mainView.id + ". Mode: " + mode);
     
@@ -828,10 +925,35 @@ function RunMultiscaleAdaptiveStretch(window, mode) {
     console.noteln("Invoking MultiscaleAdaptiveStretch");
     return P.executeOn(window.mainView);
 }
-// -----------------------------------------------------------------------
-// ChannelCombination 
-// The script will combine them into a single RGB image using the ChannelCombination process.
-// -----------------------------------------------------------------------
+
+/**
+ * 
+ * @param {*} window 
+ * @returns 
+ */
+function RunStarStretch(window) {
+    console.noteln("Running StarStretch on " + window.mainView.id + ".");
+    var P = new MaskedStretch;
+    P.targetBackground = 0.08000000;
+    P.numberOfIterations = 100;
+    P.clippingFraction = 0.00010000;
+    P.backgroundReferenceViewId = "";
+    P.backgroundLow = 0.00000000;
+    P.backgroundHigh = 0.04000000;
+    P.useROI = true;
+    P.roiX0 = 10;
+    P.roiY0 = 10;
+    P.roiX1 = 110;
+    P.roiY1 = 110;
+    P.maskType = MaskedStretch.prototype.MaskType_Intensity;
+    return P.executeOn(window.mainView);
+}
+
+/**
+ * Summary: Builds a new RGB or SHO image from three source channel IDs via ChannelCombination.
+ * Input: ch1 (String), ch2 (String), ch3 (String)
+ * Output: ImageWindow|null (newly created combined window)
+ */
 function CombineChannels(ch1, ch2, ch3) {
     console.noteln("Running ChannelCombination on " + ch1 + ", " + ch2 + ", " + ch3 + ".");
     
@@ -862,31 +984,46 @@ function CombineChannels(ch1, ch2, ch3) {
     return null; // shouldn't happen if executeGlobal() succeeded
 }
 
-function duplicateImageWindow(sourceWindow) {
+/**
+ * Summary: Creates a duplicate of a window, using a temporary fallback file when needed.
+ * Input: sourceWindow (ImageWindow), fallbackDir (String)
+ * Output: ImageWindow|null (duplicate window)
+ */
+function duplicateImageWindow(sourceWindow, fallbackDir) {
     if (sourceWindow == null)
         return null;
 
-    if (!sourceWindow.filePath || sourceWindow.filePath.length === 0) {
-        console.warningln("Cannot duplicate an unsaved window: " + sourceWindow.mainView.id);
-        return null;
+    var sourcePath = sourceWindow.filePath;
+
+    if (!sourcePath || sourcePath.length === 0 || !File.exists(sourcePath)) {
+        if (!fallbackDir || fallbackDir.length === 0) {
+            console.warningln("Cannot duplicate window without a valid source path: " + sourceWindow.mainView.id);
+            return null;
+        }
+
+        sourcePath = fallbackDir + "/__dup_" + sourceWindow.mainView.id + "_" + Date.now().toString() + ".xisf";
+        if (!sourceWindow.saveAs(sourcePath, false, false, false, false)) {
+            console.warningln("Failed to create fallback duplicate source file: " + sourcePath);
+            return null;
+        }
     }
 
-    if (!File.exists(sourceWindow.filePath)) {
-        console.warningln("Cannot duplicate missing file: " + sourceWindow.filePath);
-        return null;
-    }
-
-    var windows = ImageWindow.open(sourceWindow.filePath);
+    var windows = ImageWindow.open(sourcePath);
     if (windows.length === 0) {
-        console.warningln("Failed to duplicate window: " + sourceWindow.filePath);
+        console.warningln("Failed to duplicate window: " + sourcePath);
+        if (sourcePath != sourceWindow.filePath && File.exists(sourcePath))
+            File.remove(sourcePath);
         return null;
     }
+
+    if (sourcePath != sourceWindow.filePath && File.exists(sourcePath))
+        File.remove(sourcePath);
 
     return windows[0];
 }
 
 // -----------------------------------------------------------------------
-// CropAndRenameDialog
+// ProcessMastersDialog
 // The user interface dialog for this script.
 // Extends the PJSR Dialog class using prototype inheritance.
 //
@@ -895,6 +1032,11 @@ function duplicateImageWindow(sourceWindow) {
 //   - Controls are arranged using Sizers (layout managers)
 //   - Events are handled via callback properties (onClick, etc.)
 // -----------------------------------------------------------------------
+/**
+ * Summary: Constructs and wires the main ProcessMasters dialog UI and option bindings.
+ * Input: engine (ProcessMasters)
+ * Output: Dialog instance (via constructor/prototype pattern)
+ */
 function ProcessMastersDialog(engine) {
     // ---------------------------------------------------------------
     // PJSR Inheritance Pattern
@@ -1394,6 +1536,11 @@ ProcessMastersDialog.prototype = new Dialog;
 // main()
 // Script entry point - called when script is executed
 // -----------------------------------------------------------------------
+/**
+ * Summary: Entry point that initializes the engine/dialog and runs the selected processing workflow.
+ * Input: none
+ * Output: void
+ */
 function main() {
 
     // ---------------------------------------------------------------

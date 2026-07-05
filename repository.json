@@ -1,0 +1,15 @@
+﻿{
+    "version":  "1.0.1",
+    "name":  "ProcessMasters",
+    "description":  "Simple PixInsight script for post WBPP processing.",
+    "updateUrl":  "https://raw.githubusercontent.com/kfaubel/ProcessMasters/main/repository.json",
+    "scripts":  [
+                    {
+                        "id":  "ProcessMasters",
+                        "name":  "ProcessMasters",
+                        "version":  "1.0.1",
+                        "description":  "Simple PixInsight script for post WBPP processing.",
+                        "url":  "httpsscripts/ProcessMasters.js"
+                    }
+                ]
+}

@@ -1,0 +1,40 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<xri version="1.0">
+  <description>
+     <p>
+        Simple PixInsight script for WBPP post processing.
+     </p>
+  </description>
+   <platform os="all" arch="noarch" version="1.9.3:1.9.3">
+      <package fileName="ProcessMasters-v1.0.1.zip"
+               sha1="47748fb5c5183981278e305f1efd09953012499b"
+               type="script"
+               releaseDate="20260705">
+         <title>
+            ProcessMasters
+         </title>
+         <description>
+            <p>
+               ProcessMasters.js automates early post-integration processing for WBPP master files.
+               It is designed to take channel masters (L, R, G, B, H, S, O), clean up workspace artifacts,
+               run common AI-assisted correction steps, and produce combined masters for downstream processing.
+            </p>
+            <p>
+               In practical terms, it can:
+            </p>
+            <ul>
+                <li> Open selected master files and close `crop_mask` windows. </li> 
+                <li> Detect filter type from WBPP-style file names and rename images to `L`, `R`, `G`, `B`, `H`, `S`, `O`.</li>
+                <li> Apply optional per-channel processing such as GraXpert background extraction and BlurXTerminator (correct-only).</li>
+                <li> Combine channels into `RGB` (R+G+B) and/or `SHO` (S+H+O) when available.</li>
+                <li> Run optional post-combination processing: SPCC (for RGB), BlurXTerminator full, NoiseXTerminator, and StarXTerminator.</li>
+                <li> Save outputs back to the source directory, including starless/stars variants where applicable.</li>
+                <li> Save TIFF images for import into tools like Affinity.</li>
+            </ul>
+            <p>
+               Copyright (c) 2026 Ken Faubel All Rights Reserved.
+            </p>
+         </description>
+      </package>
+   </platform>
+</xri>
