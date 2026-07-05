@@ -9,6 +9,7 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoPath = Join-Path $repoRoot 'repository.json'
 $updatesPath = Join-Path $repoRoot 'updates.xri'
+$updatesDir = Join-Path $repoRoot 'updates'
 $scriptsDir = Join-Path $repoRoot 'src\scripts'
 
 if (-not (Test-Path -LiteralPath $repoPath)) {
@@ -17,6 +18,10 @@ if (-not (Test-Path -LiteralPath $repoPath)) {
 
 if (-not (Test-Path -LiteralPath $updatesPath)) {
     throw "updates.xri not found: $updatesPath"
+}
+
+if (-not (Test-Path -LiteralPath $updatesDir)) {
+    New-Item -ItemType Directory -Path $updatesDir | Out-Null
 }
 
 if (-not (Test-Path -LiteralPath $scriptsDir)) {
@@ -61,7 +66,7 @@ foreach ($scriptEntry in $repo.scripts) {
 $repo | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $repoPath -Encoding UTF8
 
 $zipName = 'ProcessMasters-v{0}.zip' -f $newVersion
-$zipPath = Join-Path $repoRoot $zipName
+$zipPath = Join-Path $updatesDir $zipName
 
 if (Test-Path -LiteralPath $zipPath) {
     Remove-Item -LiteralPath $zipPath -Force
@@ -81,3 +86,5 @@ Set-Content -LiteralPath $updatesPath -Value $updates -Encoding UTF8
 Write-Host "Updated repository version: $newVersion"
 Write-Host "Created archive: $zipName"
 Write-Host "SHA1: $sha1"
+Write-Host ""
+Write-Host "Commit and push changes to Github"

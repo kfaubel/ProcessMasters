@@ -35,7 +35,7 @@ The dialog lets you choose input files and options, then the processing engine r
 - `ProcessMasters.js`: PixInsight script source.
 - `deploy.sh`: Copies `ProcessMasters.js` to PixInsight's script directory.
 
-## Deploy
+## Local Deploy
 
 This deployment targets:
 
@@ -50,6 +50,14 @@ bash deploy.sh
 ```
 
 If not run as Administrator, `deploy.sh` exits with an error.
+
+## Public Deployment
+Run release.bat (Major|<Minor|Patch)   - Update the version, generate the release.zip file and generate the SHA1 hash for the release.zip file.
+
+### Install into Pixinsight
+- Add a new repository to PixInsight's Script Repository Manager: "https://raw.githubusercontent.com/kfaubel/ProcessMasters/main"
+- Run Checdk for Updates in the Script Repository Manager to fetch the latest version of ProcessMasters.js
+- Restart PixInsight and ProcessMasters.js will be available in the Script menu.
 
 ## Requirements
 

@@ -6,8 +6,8 @@
      </p>
   </description>
    <platform os="all" arch="noarch" version="1.9.3:1.9.3">
-      <package fileName="ProcessMasters-v1.0.1.zip"
-               sha1="47748fb5c5183981278e305f1efd09953012499b"
+      <package fileName="ProcessMasters-v1.0.2.zip"
+               sha1="770f582d328d2d38121a66e042796448df6fa77b"
                type="script"
                releaseDate="20260705">
          <title>
@@ -38,3 +38,4 @@
       </package>
    </platform>
 </xri>
+
