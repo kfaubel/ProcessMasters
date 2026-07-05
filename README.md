@@ -2,7 +2,7 @@
 
 Simple PixInsight script for post WBPP processing.
 
-![PixInsight script screenshot](screenshot.png)
+![PixInsight script screenshot](Screenshot.png)
 
 ## What the script does
 
