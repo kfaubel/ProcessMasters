@@ -8,8 +8,7 @@
                         "id":  "ProcessMasters",
                         "name":  "ProcessMasters",
                         "version":  "1.0.1",
-                        "description":  "Simple PixInsight script for post WBPP processing.",
-                        "url":  "httpsscripts/ProcessMasters.js"
+                        "description":  "Simple PixInsight script for post WBPP processing."
                     }
                 ]
 }

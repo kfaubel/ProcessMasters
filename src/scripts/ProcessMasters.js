@@ -11,7 +11,7 @@
 // #feature-id: Registers script with unique ID and menu location
 //   Format: UniqueID : MenuCategory > ScriptName
 //   This places the script in: Script > ProcessLRGB
-#feature-id    ProcessMasters : KTF > ProcessMasters
+#feature-id    ProcessMasters : Treehouse Astro > ProcessMasters
 
 // #feature-info: Brief description shown in PixInsight's Feature Scripts dialog
 #feature-info  Process master images, combine RGB or SHO and remove stars.
