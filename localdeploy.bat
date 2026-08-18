@@ -3,7 +3,8 @@ setlocal EnableExtensions
 
 set "SCRIPT_DIR=%~dp0"
 set "SOURCE_FILE=%SCRIPT_DIR%src\scripts\ProcessMasters.js"
-set "DEST_DIR=C:\Program Files\PixInsight\src\scripts\local"
+rem set "DEST_DIR-ORIG=C:\Program Files\PixInsight\src\scripts\local"
+set "DEST_DIR=C:\Program Files\PixInsight"
 set "DEST_FILE=%DEST_DIR%\ProcessMasters.js"
 
 net session >nul 2>&1
@@ -29,5 +30,6 @@ if errorlevel 1 (
 )
 
 echo Deployed "%SOURCE_FILE%" to "%DEST_FILE%".
-dir "%DEST_DIR%"
+rem dir "%DEST_DIR%"
 exit /b 0
+    
