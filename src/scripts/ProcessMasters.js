@@ -81,14 +81,17 @@ function ProcessMasters() {
     // Process options - control additional processing steps
     this.runGraxpertBG = false;
     this.runBlurXterminatorCorrectOnly = false;
-    this.runChannelCombination = true;
+    this.runRGBChannelCombination = true;
+    this.runSHOChannelCombination = true;
     this.runSPCC = true;
     this.runLinearFit = true;
     this.runBlurXterminatorFull = false;
     this.runNoiseXterminator = false;
     this.runStarXterminator = false;
     this.runMultiscaleAdaptiveStretch = false;
+    this.runStarStretch = false;
     this.saveTIFFs = false;
+    this.shoPaletteMode = "SHO";
 
     var allowedFilters = "LRGBSHO".split("");
     var windowsDictionary = {};
@@ -96,115 +99,45 @@ function ProcessMasters() {
      * @function finalizeResultWindows
      * @summary Runs shared final output steps (optional MAS and TIFF export) for a result window set.
      * @param {ImageWindow[]} resultWindows Result windows to finalize.
+     * @param {String} fileBaseName Base name of the file being processed. (Typically "RGB", "SHO", or "L")
      * @param {String} dir Output directory path.
      * @returns {Boolean} True when all finalization steps succeed.
      */
-    this.finalizeResultWindows = function (resultWindows, dir) {
-        // Shared finalization stage for RGB/SHO/L outputs:
-        // 1) Optional MultiscaleAdaptiveStretch
-        // 2) Optional 16-bit TIFF export
-        for (var i = 0; i < resultWindows.length; ++i) {
-            var resultWindow = resultWindows[i];
-
-            if (this.runMultiscaleAdaptiveStretch) {
-                var mode = resolveStretchMode(resultWindow.mainView.id);
-                if (mode === "starless") {
-                    if (RunMultiscaleAdaptiveStretch(resultWindow, mode)) {
-                        resultWindow.mainView.id += "_mas";
-                        console.noteln("MultiscaleAdaptiveStretch completed successfully on: " + resultWindow.mainView.id);
-                        var masOutPath = dir + "/" + resultWindow.mainView.id + ".xisf";
-                        if (!saveWindowAsXISF(resultWindow, masOutPath, "MAS result"))
-                            return false;
-                    } else {
-                        console.warningln("MultiscaleAdaptiveStretch failed on: " + resultWindow.mainView.id);
-                        return false;
-                    }
-                } else if (mode === "stars") {
-                    if (RunStarStretch(resultWindow, mode)) {
-                        resultWindow.mainView.id += "_stretch";
-                        console.noteln("StarStretch completed successfully on: " + resultWindow.mainView.id);
-                        var stretchOutPath = dir + "/" + resultWindow.mainView.id + ".xisf";
-                        if (!saveWindowAsXISF(resultWindow, stretchOutPath, "StarStretch result"))
-                            return false;
-                    } else {
-                        console.warningln("StarStretch failed on: " + resultWindow.mainView.id);
-                        return false;
-                    }
-                }
-            }
-
-            if (this.saveTIFFs) {
-                console.noteln("Saving 16bit TIFF for: " + resultWindow.mainView.id);
-                var tifOutPath = dir + "/" + resultWindow.mainView.id + ".tif";
-                saveTIFF(resultWindow, tifOutPath);
-            }
-        }
-
-        return true;
-    };
-
-    /**
-     * @function processRGBWindow
-     * @summary Applies the configured RGB post-processing pipeline and returns generated result windows.
-     * @param {ImageWindow} rgbWindow Combined RGB image window.
-     * @param {String} dir Output directory path.
-     * @returns {ImageWindow[]|null} Processed result windows, or null on failure.
-     */
-    this.processRGBWindow = function (rgbWindow, dir) {
-        console.noteln("Processing RGB window.");
-
-        if (rgbWindow == null)
-            return null;       
-
-        var resultWindows = [rgbWindow];
-        var fileBaseName = "RGB";
-
-        if (this.runSPCC) {
-            if (RunSPCC(rgbWindow)) {
-                console.noteln("SPCC completed successfully.");
-
-                fileBaseName = appendStageSuffixAndSave(rgbWindow, fileBaseName, "spcc", dir, "RGB SPCC result");
-                if (fileBaseName == null)
-                    return null;
-            } else {
-                console.warningln("SPCC failed on: " + rgbWindow.mainView.id + ". Aborting further processing.");
-                return null;
-            }
-        }
+    this.postProcessWindow = function (window, fileBaseName,dir) {
 
         if (this.runBlurXterminatorFull) {
-            if (RunBlurXterminatorFull(rgbWindow)) {
+            if (RunBlurXterminatorFull(window)) {
                 console.noteln("BlurXTerminator full completed successfully on RGB image.");
 
-                fileBaseName = appendStageSuffixAndSave(rgbWindow, fileBaseName, "bxt", dir, "RGB BlurXTerminator result");
+                fileBaseName = appendStageSuffixAndSave(window, fileBaseName, "bxt", dir, "RGB BlurXTerminator result");
                 if (fileBaseName == null)
                     return null;
             } else {
-                console.warningln("BlurXTerminator full failed on: " + rgbWindow.mainView.id + ". Aborting further processing.");
+                console.warningln("BlurXTerminator full failed on: " + window.mainView.id + ". Aborting further processing.");
                 return null;
             }
         }
 
         if (this.runNoiseXterminator) {
-            if (RunNoiseXterminator(rgbWindow)) {
+            if (RunNoiseXterminator(window)) {
                 console.noteln("NoiseXTerminator completed successfully on RGB image.");
 
-                fileBaseName = appendStageSuffixAndSave(rgbWindow, fileBaseName, "nxt", dir, "RGB NoiseXTerminator result");
+                fileBaseName = appendStageSuffixAndSave(window, fileBaseName, "nxt", dir, "RGB NoiseXTerminator result");
                 if (fileBaseName == null)
                     return null;
             } else {
-                console.warningln("NoiseXTerminator failed on: " + rgbWindow.mainView.id + ". Aborting further processing.");
+                console.warningln("NoiseXTerminator failed on: " + window.mainView.id + ". Aborting further processing.");
                 return null;
             }
         }
 
         if (this.runStarXterminator) {
-            if (RunStarXterminator(rgbWindow, true)) {
+            if (RunStarXterminator(window, true)) {
                 console.noteln("StarXTerminator completed successfully on RGB image.");
-                rgbWindow.mainView.id += "_starless";
+                window.mainView.id += "_starless";
                 var outPath = dir + "/" + fileBaseName + "_starless" + ".xisf";
                 console.noteln("Saving RGB starless image: " + fileBaseName + "_starless" + ".xisf");
-                if (!saveWindowAsXISF(rgbWindow, outPath, "RGB starless result"))
+                if (!saveWindowAsXISF(window, outPath, "RGB starless result"))
                     return null;
 
                 var starsWindow = findWindowById(fileBaseName + "_stars");
@@ -220,170 +153,296 @@ function ProcessMasters() {
                     console.warningln("Could not find stars image created by StarXTerminator for RGB image.");
                 }
             } else {
-                console.warningln("StarXTerminator failed on: " + rgbWindow.mainView.id);
+                console.warningln("StarXTerminator failed on: " + window.mainView.id);
                 return null;
             }
         }
 
-        return resultWindows;
+        // Shared finalization stage for RGB/SHO/L outputs:
+        // 1) Optional MultiscaleAdaptiveStretch
+        // 2) Optional 16-bit TIFF export
+        if (window) {
+            var mode = resolveStretchMode(window.mainView.id);
+
+            if (this.runMultiscaleAdaptiveStretch) {                
+                if (mode === "starless") {
+                    if (RunMultiscaleAdaptiveStretch(window, mode)) {
+                        window.mainView.id += "_mas";
+                        console.noteln("MultiscaleAdaptiveStretch completed successfully on: " + window.mainView.id);
+                        var masOutPath = dir + "/" + window.mainView.id + ".xisf";
+                        if (!saveWindowAsXISF(window, masOutPath, "MAS result"))
+                            return false;
+                    } else {
+                        console.warningln("MultiscaleAdaptiveStretch failed on: " + window.mainView.id);
+                        return false;
+                    }
+                }
+             }
+             
+            if (this.runStarStretch) {
+                if (mode === "stars") {
+                    if (RunStarStretch(window, mode)) {
+                        window.mainView.id += "_stretch";
+                        console.noteln("Star Stretch completed successfully on: " + window.mainView.id);
+                        var stretchOutPath = dir + "/" + window.mainView.id + ".xisf";
+                        if (!saveWindowAsXISF(window, stretchOutPath, "StarStretch result"))
+                            return false;
+                    } else {
+                        console.warningln("StarStretch failed on: " + window.mainView.id);
+                        return false;
+                    }
+                }
+            }
+
+            if (this.saveTIFFs) {
+                console.noteln("Saving 16bit TIFF for: " + window.mainView.id);
+                var tifOutPath = dir + "/" + window.mainView.id + ".tif";
+                saveTIFF(window, tifOutPath);
+            }
+        }
+
+        return true;
     };
 
-    /**
-     * @function processSHOWindow
-     * @summary Applies the configured SHO post-processing pipeline and returns generated result windows.
-     * @param {ImageWindow} shoWindow Combined SHO image window.
-     * @param {String} dir Output directory path.
-     * @returns {ImageWindow[]|null} Processed result windows, or null on failure.
-     */
-    this.processSHOWindow = function (shoWindow, dir) {
-        console.noteln("Processing SHO window.");
+    // /**
+    //  * @function processRGBWindow
+    //  * @summary Applies the configured RGB post-processing pipeline and returns generated result windows.
+    //  * @param {ImageWindow} rgbWindow Combined RGB image window.
+    //  * @param {String} dir Output directory path.
+    //  * @returns {ImageWindow[]|null} Processed result windows, or null on failure.
+    //  */
+    // this.processRGBWindow = function (rgbWindow, dir) {
+    //     console.noteln("Processing RGB window.");
 
-        if (shoWindow == null)
-            return null;
+    //     if (rgbWindow == null)
+    //         return null;       
 
-        var resultWindows = [shoWindow];
-        var fileBaseName = "SHO";
+    //     var resultWindows = [rgbWindow];    
+    //     var fileBaseName = "RGB";
 
-        if (this.runBlurXterminatorFull) {
-            if (RunBlurXterminatorFull(shoWindow)) {
-                console.noteln("BlurXTerminator full completed successfully on SHO image.");
+    //     if (this.runSPCC) {
+    //         if (RunSPCC(rgbWindow)) {   
+    //             fileBaseName = appendStageSuffixAndSave(rgbWindow, fileBaseName, "spcc", dir, "RGB SPCC result");
+    //             if (fileBaseName == null)
+    //                 return null;
+    //         } else {
+    //             console.warningln("SPCC failed on: " + rgbWindow.mainView.id + ". Aborting further processing.");
+    //             return null;
+    //         }
+    //     }
 
-                fileBaseName = appendStageSuffixAndSave(shoWindow, fileBaseName, "bxt", dir, "SHO BlurXTerminator result");
-                if (fileBaseName == null)
-                    return null;
-            } else {
-                console.warningln("BlurXTerminator full failed on: " + shoWindow.mainView.id + ". Aborting further processing.");
-                return null;
-            }
-        }        
+    //     if (this.runBlurXterminatorFull) {
+    //         if (RunBlurXterminatorFull(rgbWindow)) {
+    //             console.noteln("BlurXTerminator full completed successfully on RGB image.");
+
+    //             fileBaseName = appendStageSuffixAndSave(rgbWindow, fileBaseName, "bxt", dir, "RGB BlurXTerminator result");
+    //             if (fileBaseName == null)
+    //                 return null;
+    //         } else {
+    //             console.warningln("BlurXTerminator full failed on: " + rgbWindow.mainView.id + ". Aborting further processing.");
+    //             return null;
+    //         }
+    //     }
+
+    //     if (this.runNoiseXterminator) {
+    //         if (RunNoiseXterminator(rgbWindow)) {
+    //             console.noteln("NoiseXTerminator completed successfully on RGB image.");
+
+    //             fileBaseName = appendStageSuffixAndSave(rgbWindow, fileBaseName, "nxt", dir, "RGB NoiseXTerminator result");
+    //             if (fileBaseName == null)
+    //                 return null;
+    //         } else {
+    //             console.warningln("NoiseXTerminator failed on: " + rgbWindow.mainView.id + ". Aborting further processing.");
+    //             return null;
+    //         }
+    //     }
+
+    //     if (this.runStarXterminator) {
+    //         if (RunStarXterminator(rgbWindow, true)) {
+    //             console.noteln("StarXTerminator completed successfully on RGB image.");
+    //             rgbWindow.mainView.id += "_starless";
+    //             var outPath = dir + "/" + fileBaseName + "_starless" + ".xisf";
+    //             console.noteln("Saving RGB starless image: " + fileBaseName + "_starless" + ".xisf");
+    //             if (!saveWindowAsXISF(rgbWindow, outPath, "RGB starless result"))
+    //                 return null;
+
+    //             var starsWindow = findWindowById(fileBaseName + "_stars");
+
+    //             if (starsWindow) {                    
+    //                 var starsFilename = fileBaseName + "_stars";
+    //                 var outPath = dir + "/" + starsFilename + ".xisf";
+    //                 console.noteln("Saving RGB stars image: " + starsFilename + ".xisf");
+    //                 if (!saveWindowAsXISF(starsWindow, outPath, "RGB stars result"))
+    //                     return null;
+    //                 resultWindows.push(starsWindow);
+    //             } else {
+    //                 console.warningln("Could not find stars image created by StarXTerminator for RGB image.");
+    //             }
+    //         } else {
+    //             console.warningln("StarXTerminator failed on: " + rgbWindow.mainView.id);
+    //             return null;
+    //         }
+    //     }
+
+    //     return resultWindows;
+    // };
+
+    // /**
+    //  * @function processSHOWindow
+    //  * @summary Applies the configured SHO post-processing pipeline and returns generated result windows.
+    //  * @param {ImageWindow} shoWindow Combined SHO image window.
+    //  * @param {String} dir Output directory path.
+    //  * @returns {ImageWindow[]|null} Processed result windows, or null on failure.
+    //  */
+    // this.processSHOWindow = function (shoWindow, dir, paletteName) {
+    //     console.noteln("Processing SHO window.");
+
+    //     if (shoWindow == null)
+    //         return null;
+
+    //     var resultWindows = [shoWindow];
+    //     var fileBaseName = paletteName || this.shoPaletteMode || "SHO";
+
+    //     if (this.runBlurXterminatorFull) {
+    //         if (RunBlurXterminatorFull(shoWindow)) {
+    //             console.noteln("BlurXTerminator full completed successfully on SHO image.");
+
+    //             fileBaseName = appendStageSuffixAndSave(shoWindow, fileBaseName, "bxt", dir, "SHO BlurXTerminator result");
+    //             if (fileBaseName == null)
+    //                 return null;
+    //         } else {
+    //             console.warningln("BlurXTerminator full failed on: " + shoWindow.mainView.id + ". Aborting further processing.");
+    //             return null;
+    //         }
+    //     }        
         
-        if (this.runNoiseXterminator) {
-            if (RunNoiseXterminator(shoWindow)) {
-                console.noteln("NoiseXTerminator completed successfully on SHO image.");
-                fileBaseName = appendStageSuffixAndSave(shoWindow, fileBaseName, "nxt", dir, "SHO NoiseXTerminator result");
-                if (fileBaseName == null)
-                    return null;
-            } else {
-                console.warningln("NoiseXTerminator failed on: " + shoWindow.mainView.id + ". Aborting further processing.");
-                return null;
-            }
-        }
+    //     if (this.runNoiseXterminator) {
+    //         if (RunNoiseXterminator(shoWindow)) {
+    //             console.noteln("NoiseXTerminator completed successfully on SHO image.");
+    //             fileBaseName = appendStageSuffixAndSave(shoWindow, fileBaseName, "nxt", dir, "SHO NoiseXTerminator result");
+    //             if (fileBaseName == null)
+    //                 return null;
+    //         } else {
+    //             console.warningln("NoiseXTerminator failed on: " + shoWindow.mainView.id + ". Aborting further processing.");
+    //             return null;
+    //         }
+    //     }
 
-        if (this.runStarXterminator) {
-            if (RunStarXterminator(shoWindow, true)) {
-                console.noteln("StarXTerminator completed successfully on SHO image.");
-                shoWindow.mainView.id += "_starless";                
-                var outPath = dir + "/" + fileBaseName + "_starless" + ".xisf";
-                console.noteln("Saving SHO starless image: " + fileBaseName + "_starless" + ".xisf");
-                if (!saveWindowAsXISF(shoWindow, outPath, "SHO starless result"))
-                    return null;
+    //     if (this.runStarXterminator) {
+    //         if (RunStarXterminator(shoWindow, true)) {
+    //             console.noteln("StarXTerminator completed successfully on SHO image.");
+    //             shoWindow.mainView.id += "_starless";                
+    //             var outPath = dir + "/" + fileBaseName + "_starless" + ".xisf";
+    //             console.noteln("Saving SHO starless image: " + fileBaseName + "_starless" + ".xisf");
+    //             if (!saveWindowAsXISF(shoWindow, outPath, "SHO starless result"))
+    //                 return null;
 
-                var starsWindow = findWindowById(fileBaseName + "_stars");
+    //             var starsWindow = findWindowById(fileBaseName + "_stars");
 
-                if (starsWindow) {                    
-                    var starsFilename = fileBaseName + "_stars";
-                    var outPath = dir + "/" + starsFilename + ".xisf";
-                    console.noteln("Saving SHO stars image: " + starsFilename + ".xisf");
-                    if (!saveWindowAsXISF(starsWindow, outPath, "SHO stars result"))
-                        return null;
-                    resultWindows.push(starsWindow);
-                } else {
-                    console.warningln("Could not find stars image created by StarXTerminator for SHO image.");
-                }
-            } else {
-                console.warningln("StarXTerminator failed on: " + shoWindow.mainView.id);
-                return null;
-            }
-        }
+    //             if (starsWindow) {                    
+    //                 var starsFilename = fileBaseName + "_stars";
+    //                 var outPath = dir + "/" + starsFilename + ".xisf";
+    //                 console.noteln("Saving SHO stars image: " + starsFilename + ".xisf");
+    //                 if (!saveWindowAsXISF(starsWindow, outPath, "SHO stars result"))
+    //                     return null;
+    //                 resultWindows.push(starsWindow);
+    //             } else {
+    //                 console.warningln("Could not find stars image created by StarXTerminator for SHO image.");
+    //             }
+    //         } else {
+    //             console.warningln("StarXTerminator failed on: " + shoWindow.mainView.id);
+    //             return null;
+    //         }
+    //     }
 
-        return resultWindows;
-    };
+    //     return resultWindows;
+    // };
 
-    /**
-     * @function processLWindow
-     * @summary Applies the configured luminance post-processing pipeline and returns generated result windows.
-     * @param {ImageWindow} luminanceWindow Luminance image window.
-     * @param {String} dir Output directory path.
-     * @returns {ImageWindow[]|null} Processed result windows, or null on failure.
-     */
-    this.processLWindow = function (luminanceWindow, dir) {
-        console.noteln("Processing Luminance window.");
+    // /**
+    //  * @function processLWindow
+    //  * @summary Applies the configured luminance post-processing pipeline and returns generated result windows.
+    //  * @param {ImageWindow} luminanceWindow Luminance image window.
+    //  * @param {String} dir Output directory path.
+    //  * @returns {ImageWindow[]|null} Processed result windows, or null on failure.
+    //  */
+    // this.processLuminanceWindow = function (luminanceWindow, dir) {
+    //     console.noteln("Processing Luminance window.");
 
-        if (luminanceWindow == null)
-            return null;
+    //     if (luminanceWindow == null)
+    //         return null;
 
-        var resultWindows = [luminanceWindow];
-        var fileBaseName = "L";
+    //     var resultWindows = [luminanceWindow];
+    //     var fileBaseName = "L";
 
-        if (this.runGraxpertBG) {
-            if (!RunGraxpertBackgroundExtraction(luminanceWindow)) {
-                console.warningln("GraXpert failed on: " + luminanceWindow.mainView.id);
-                return null;
-            }
-        }
+    //     if (this.runGraxpertBG) {
+    //         if (!RunGraxpertBackgroundExtraction(luminanceWindow)) {
+    //             console.warningln("GraXpert failed on: " + luminanceWindow.mainView.id);
+    //             return null;
+    //         }
+    //     }
 
-        if (this.runBlurXterminatorCorrectOnly) {
-            if (!RunBlurXterminatorCorrectOnly(luminanceWindow)) {
-                console.warningln("BlurXTerminator failed on: " + luminanceWindow.mainView.id);
-                return null;
-            }
-        }
+    //     if (this.runBlurXterminatorCorrectOnly) {
+    //         if (!RunBlurXterminatorCorrectOnly(luminanceWindow)) {
+    //             console.warningln("BlurXTerminator failed on: " + luminanceWindow.mainView.id);
+    //             return null;
+    //         }
+    //     }
 
-        if (this.runGraxpertBG || this.runBlurXterminatorCorrectOnly)
-            saveWindowAsXISF(luminanceWindow, dir + "/" + luminanceWindow.mainView.id + ".xisf", "L channel preprocessing result");
+    //     if (this.runGraxpertBG || this.runBlurXterminatorCorrectOnly)
+    //         saveWindowAsXISF(luminanceWindow, dir + "/" + luminanceWindow.mainView.id + ".xisf", "L channel preprocessing result");
 
-        if (this.runBlurXterminatorFull) {
-            if (RunBlurXterminatorFull(luminanceWindow)) {
-                console.noteln("BlurXTerminator full completed successfully on luminance window.");
-                fileBaseName = appendStageSuffixAndSave(luminanceWindow, fileBaseName, "bxt", dir, "Luminance BlurXTerminator result");
-                if (fileBaseName == null)
-                    return null;
-            } else {
-                console.warningln("BlurXTerminator full failed on luminance window.");
-                return null;
-            }
-        }
+    //     if (this.runBlurXterminatorFull) {
+    //         if (RunBlurXterminatorFull(luminanceWindow)) {
+    //             console.noteln("BlurXTerminator full completed successfully on luminance window.");
+    //             fileBaseName = appendStageSuffixAndSave(luminanceWindow, fileBaseName, "bxt", dir, "Luminance BlurXTerminator result");
+    //             if (fileBaseName == null)
+    //                 return null;
+    //         } else {
+    //             console.warningln("BlurXTerminator full failed on luminance window.");
+    //             return null;
+    //         }
+    //     }
 
-        if (this.runNoiseXterminator) {
-            if (RunNoiseXterminator(luminanceWindow)) {
-                console.noteln("NoiseXTerminator completed successfully on luminance window.");
-                fileBaseName = appendStageSuffixAndSave(luminanceWindow, fileBaseName, "nxt", dir, "Luminance NoiseXTerminator result");
-                if (fileBaseName == null)
-                    return null;
-            } else {
-                console.warningln("NoiseXTerminator failed on luminance window.");
-                return null;
-            }
-        }
+    //     if (this.runNoiseXterminator) {
+    //         if (RunNoiseXterminator(luminanceWindow)) {
+    //             console.noteln("NoiseXTerminator completed successfully on luminance window.");
+    //             fileBaseName = appendStageSuffixAndSave(luminanceWindow, fileBaseName, "nxt", dir, "Luminance NoiseXTerminator result");
+    //             if (fileBaseName == null)
+    //                 return null;
+    //         } else {
+    //             console.warningln("NoiseXTerminator failed on luminance window.");
+    //             return null;
+    //         }
+    //     }
 
-        if (this.runStarXterminator) {
-            if (RunStarXterminator(luminanceWindow, false)) {
-                console.noteln("StarXTerminator completed successfully on luminance window.");
-                luminanceWindow.mainView.id += "_starless";
-                var outPath = dir + "/" + fileBaseName + "_starless" + ".xisf";
-                if (!saveWindowAsXISF(luminanceWindow, outPath, "Luminance starless result"))
-                    return null;
+    //     if (this.runStarXterminator) {
+    //         if (RunStarXterminator(luminanceWindow, false)) {
+    //             console.noteln("StarXTerminator completed successfully on luminance window.");
+    //             luminanceWindow.mainView.id += "_starless";
+    //             var outPath = dir + "/" + fileBaseName + "_starless" + ".xisf";
+    //             if (!saveWindowAsXISF(luminanceWindow, outPath, "Luminance starless result"))
+    //                 return null;
 
-                var starsWindow = findWindowById(fileBaseName + "_stars");
+    //             var starsWindow = findWindowById(fileBaseName + "_stars");
 
-                if (starsWindow) {                    
-                    var starsFilename = fileBaseName + "_stars";
-                    var outPath = dir + "/" + starsFilename + ".xisf";
-                    console.noteln("Saving Luminance stars image: " + starsFilename + ".xisf");
-                    if (!saveWindowAsXISF(starsWindow, outPath, "Luminance stars result"))
-                        return null;
-                    resultWindows.push(starsWindow);
-                } else {
-                    console.warningln("Could not find stars image created by StarXTerminator for Luminance image.");
-                }
-            } else {
-                console.warningln("StarXTerminator failed on luminance window.");
-                return null;
-            }
-        }
+    //             if (starsWindow) {                    
+    //                 var starsFilename = fileBaseName + "_stars";
+    //                 var outPath = dir + "/" + starsFilename + ".xisf";
+    //                 console.noteln("Saving Luminance stars image: " + starsFilename + ".xisf");
+    //                 if (!saveWindowAsXISF(starsWindow, outPath, "Luminance stars result"))
+    //                     return null;
+    //                 resultWindows.push(starsWindow);
+    //             } else {
+    //                 console.warningln("Could not find stars image created by StarXTerminator for Luminance image.");
+    //             }
+    //         } else {
+    //             console.warningln("StarXTerminator failed on luminance window.");
+    //             return null;
+    //         }
+    //     }
 
-        return resultWindows;
-    };
+    //     return resultWindows;
+    // };
 
     /**
      * @function processInputMasterFiles
@@ -408,7 +467,7 @@ function ProcessMasters() {
             console.show();
 
             if (!File.exists(filePath)) {
-                console.errorln("File not found: " + filePath + ". Skipping.");
+                console.warningln("File not found: " + filePath + ". Skipping.");
                 return null;
             }
 
@@ -485,13 +544,13 @@ function ProcessMasters() {
                 return null;
         }
 
-        console.noteln(JSON.stringify(windowsDictionary));
+        //console.noteln(JSON.stringify(windowsDictionary));
         console.noteln("***** Finished processing of individual channels.");
         return dir;
     };
 
     /**
-     * @function combineChannelSet
+     * @function combineChannels
      * @summary Combines three channel IDs into a single named window and saves the combined XISF result.
      * @param {String} ch1ViewID Source channel view ID.
      * @param {String} ch2ViewID Source channel view ID.
@@ -500,21 +559,55 @@ function ProcessMasters() {
      * @param {String} dir Output directory path.
      * @returns {ImageWindow|null} Combined channel window, or null on failure.
      */
-    this.combineChannelSet = function (ch1ViewID, ch2ViewID, ch3ViewID, combinedName, dir) {
-        // Stage 2: combine three channel windows into a single RGB/SHO image.
-        var combinedWindow = CombineChannels(ch1ViewID, ch2ViewID, ch3ViewID);
-        if (combinedWindow == null) {
-            console.warningln(combinedName + " channel combination failed.");
-            return null;
+    this.combineChannels = function (ch1ViewID, ch2ViewID, ch3ViewID, combinedName, dir) {
+        var redExpression;
+        var greenExpression;
+        var blueExpression;
+
+        console.noteln("Combining channels: " + ch1ViewID + ", " + ch2ViewID + ", " + ch3ViewID + " → " + combinedName);
+
+        switch (combinedName) {
+            case "RGB":
+                redExpression = ch1ViewID;
+                greenExpression = ch2ViewID;
+                blueExpression = ch3ViewID;
+                break;
+            case "SHO":
+                redExpression = ch1ViewID;
+                greenExpression = ch2ViewID;
+                blueExpression = ch3ViewID;
+                break;
+            case "HOO":
+                redExpression = ch1ViewID;
+                greenExpression = ch2ViewID;
+                blueExpression = ch3ViewID;
+                break;
+            case "SHO+":
+                redExpression = "(0.75 * " + ch1ViewID + ") + (0.25 * " + ch2ViewID + ")";
+                greenExpression = "(0.50 * " + ch2ViewID + ") + (0.50 * " + ch3ViewID + ")";
+                blueExpression = ch3ViewID;
+                break;
+            case "Foraxx":
+                redExpression = "(( " + ch1ViewID + "^~" + ch1ViewID + ")*" + ch1ViewID + " + ~( " + ch1ViewID + "^~" + ch1ViewID + ")*" + ch2ViewID + ")";
+                greenExpression = "(((" + ch1ViewID + "*" + ch2ViewID + ")^~(" + ch1ViewID + "*" + ch2ViewID + "))*" + ch2ViewID + " + ~(( " + ch1ViewID + "*" + ch2ViewID + ")^~(" + ch1ViewID + "*" + ch2ViewID + "))*" + ch1ViewID + ")";
+                blueExpression = ch1ViewID;
+                break;
+            default:
+                console.warningln("Invalid combinedName: " + combinedName + ". Expected 'RGB', 'SHO', 'HOO', or 'SHO+'.");
+                return null;
         }
 
-        combinedWindow.mainView.id = combinedName;
-        combinedWindow.windowTitle = combinedName;
-        var outPath = dir + "/" + combinedName + ".xisf";
-        if (!saveWindowAsXISF(combinedWindow, outPath, combinedName + " combined result"))
+        var resultWindow = RunPixelMath(redExpression, greenExpression, blueExpression, ch1ViewID, combinedName);
+        if (resultWindow == null)
             return null;
 
-        return combinedWindow;
+        resultWindow.mainView.id = combinedName;
+        resultWindow.windowTitle = combinedName;
+        var outPath = dir + "/" + combinedName + ".xisf";
+        if (!saveWindowAsXISF(resultWindow, outPath, combinedName + " combined result"))
+            return null;
+
+        return resultWindow;
     };
 
     /**
@@ -558,21 +651,18 @@ function ProcessMasters() {
                 RunLinearFit(windowsDictionary["S"].mainView, windowsDictionary["H"].mainView, windowsDictionary["O"].mainView);
             }
 
-            console.noteln("Done with runLinearFit: " + JSON.stringify(windowsDictionary));
+            //console.noteln("Done with runLinearFit: " + JSON.stringify(windowsDictionary));
 
-            if (this.runChannelCombination) {
-                var shoWindow = this.combineChannelSet("S", "H", "O", "SHO", dir);
-                if (shoWindow == null)
-                    return;
-
-                var shoResults = this.processSHOWindow(shoWindow, dir);
-                if (!shoResults)
-                    return;
-                if (!this.finalizeResultWindows(shoResults, dir))
+            if (this.runSHOChannelCombination) {
+                var shoWindow = this.combineChannels("S", "H", "O", this.shoPaletteMode, dir);
+                if (!shoWindow)
                     return;
             } else {
                 console.noteln("Skipping SHO combined processing because channel combination is disabled.");
             }
+
+            if (!this.postProcessWindow(shoWindow, "SHO", dir))
+                return;
         } else {
             console.noteln("Skipping SHO processing because S/H/O inputs were not all found.");
         }
@@ -597,30 +687,37 @@ function ProcessMasters() {
                 saveWindowAsXISF(ch, dir + "/" + ch.mainView.id + ".xisf", ch.mainView.id + " channel preprocessing result");
             }
 
-            if (this.runChannelCombination) {
-                var rgbWindow = this.combineChannelSet("R", "G", "B", "RGB", dir);
-                if (rgbWindow == null)
+            if (this.runRGBChannelCombination) {
+                var rgbWindow = this.combineChannels("R", "G", "B", "RGB", dir);
+                if (!rgbWindow) {
+                    console.warningln("Failed to combine R/G/B channels into RGB. Aborting further processing.");
                     return;
-
-                var rgbResults = this.processRGBWindow(rgbWindow, dir);
-                if (!rgbResults)
-                    return;
-                if (!this.finalizeResultWindows(rgbResults, dir))
-                    return;
+                }
             } else {
                 console.noteln("Skipping RGB combined processing because channel combination is disabled.");
+                return;
             }
+
+            if (this.runSPCC) {
+                if (RunSPCC(rgbWindow)) {   
+                    var fileBaseName = appendStageSuffixAndSave(rgbWindow, fileBaseName, "spcc", dir, "RGB SPCC result");
+                    if (fileBaseName == null)
+                        return;
+                } else {
+                    console.warningln("SPCC failed on: " + rgbWindow.mainView.id + ". Aborting further processing.");
+                    return;
+                }
+            }
+
+            if (!this.postProcessWindow(rgbWindow, "RGB", dir))
+                return;
         } else {
             console.noteln("Skipping RGB processing because R/G/B inputs were not all found.");
         }
 
         // Branch 3: Luminance (independent of SHO and RGB)
         if (windowsDictionary["L"]) {
-            var luminanceResults = this.processLWindow(windowsDictionary["L"], dir);
-            if (!luminanceResults)
-                return;
-
-            if (!this.finalizeResultWindows(luminanceResults, dir))
+            if (!this.postProcessWindow(windowsDictionary["L"], "L", dir))
                 return;
         } else {
             console.noteln("Skipping L processing because no L input was found.");
@@ -777,41 +874,66 @@ function saveTIFF(window, outPath) {
 // -----------------------------------------------------------------------
 
 /**
- * @function CombineChannels
- * @summary Builds a new RGB or SHO image from three source channel IDs via ChannelCombination.
- * @param {String} ch1ViewID Source channel view ID (e.g.: "R", "G", "B" or "S", "H", "O").
- * @param {String} ch2ViewID Source channel view ID.
- * @param {String} ch3ViewID Source channel view ID.
+ * @function RunPixelMath
+ * @summary Runs PixelMath on a target window with a given expression and channel assignments.
+ * @param {String} redChannelExpression PixelMath expression for the red channel.
+ * @param {String} greenChannelExpression PixelMath expression for the green channel.
+ * @param {String} blueChannelExpression PixelMath expression for the blue channel.
+ * @param {ImageWindow} refView Reference image window for channel assignments. (e.g.: "R")
+ * @param {String} combinedName Destination combined view ID.
  * @returns {ImageWindow|null} Newly created combined window, or null on failure.
  */
-function CombineChannels(ch1ViewID, ch2ViewID, ch3ViewID) {
-    console.noteln("Running ChannelCombination on " + ch1ViewID + ", " + ch2ViewID + ", " + ch3ViewID + ".");
-    
-    var P = new ChannelCombination;
-    P.colorSpace = ChannelCombination.prototype.RGB;
-    P.channels = [ // enabled, id
-        [true, ch1ViewID],
-        [true, ch2ViewID],
-        [true, ch3ViewID]
-    ];
-    P.inheritAstrometricSolution = true;
+function RunPixelMath(redChannelExpression, greenChannelExpression, blueChannelExpression, refView, combinedName) {
+    console.noteln("Running PixelMath on " + redChannelExpression + ", " + greenChannelExpression + ", " + blueChannelExpression + " with combined name " + combinedName + ".");
 
-    // Snapshot existing window IDs before combining so we can find the new one after
-    var existingIds = {};
-    for (var i = 0; i < ImageWindow.windows.length; ++i)
-        existingIds[ImageWindow.windows[i].mainView.id] = true;
+    var P = new PixelMath;
+    P.expression = redChannelExpression;
+    P.expression1 = greenChannelExpression;
+    P.expression2 = blueChannelExpression;
+    P.expression3 = "";
+    P.useSingleExpression = false;
+    P.symbols = "";
+    P.clearImageCacheAndExit = false;
+    P.cacheGeneratedImages = false;
+    P.generateOutput = true;
+    P.singleThreaded = false;
+    P.optimization = true;
+    P.use64BitWorkingImage = false;
+    P.rescale = false;
+    P.rescaleLower = 0;
+    P.rescaleUpper = 1;
+    P.truncate = true;
+    P.truncateLower = 0;
+    P.truncateUpper = 1;
+    P.createNewImage = true;
+    P.showNewImage = true;
+    P.newImageId = combinedName;
+    P.newImageWidth = 0;
+    P.newImageHeight = 0;
+    P.newImageAlpha = false;
+    P.newImageColorSpace = PixelMath.prototype.RGB;
+    P.newImageSampleFormat = PixelMath.prototype.SameAsTarget;
 
-    if (!P.executeGlobal())
+    var refWindow = findWindowById(refView);
+    if (!refWindow) {
+        console.warningln("Reference window not found for PixelMath: " + refView);
         return null;
-
-    // The new window is whichever one wasn't in the snapshot
-    for (var i = 0; i < ImageWindow.windows.length; ++i) {
-        var w = ImageWindow.windows[i];
-        if (!existingIds[w.mainView.id])
-            return w;
     }
 
-    return null; // shouldn't happen if executeGlobal() succeeded
+    if (!P.executeOn(refWindow.mainView)) {
+        console.warningln("PixelMath execution failed for combined name: " + combinedName);
+        return null;
+    }
+
+    var w = findWindowById(P.newImageId);
+    w.mainView.id = combinedName;
+    w.windowTitle = combinedName;
+
+    // Since PixelMath creates a new image, we need to copy the astrometric solution from the reference window.
+    w.copyAstrometricSolution(refWindow);
+    console.noteln("Astrometric solution copied from: " + refView + " to: " + combinedName + ".");
+
+    return w;
 }
 
 /**
@@ -1004,7 +1126,15 @@ function RunSPCC(window) {
     P.outputDirectory = "";
 
     console.noteln("Invoking SPCC");
-    return P.executeOn(window.mainView);
+    var resultWindow = P.executeOn(window.mainView);
+
+    if (resultWindow) {
+        console.noteln("SPCC completed successfully.");
+        return resultWindow;
+    } else {
+        console.warningln("SPCC failed.");
+        return null;
+    }
 }
 
 /**
@@ -1095,7 +1225,7 @@ function RunMultiscaleAdaptiveStretch(window, mode) {
 
 /**
  * @function RunStarStretch
- * @summary Runs MaskedStretch on a stars-only window to apply a gentle stretch.
+ * @summary Runs MaskedStretch on a stars-only window to apply a gentle stretch.  Based on the starstrech script by Tim Jenison.
  * @param {ImageWindow} window Target stars image window.
  * @returns {Boolean} True if process executed.
  */
@@ -1141,6 +1271,12 @@ function ProcessMastersDialog(engine) {
     this.author = "Ken Faubel";
     this.copyright = "2026";
 
+    this.paletteNames = ["SHO", "SHO+", "HOO", "Foraxx"];
+
+    this.getSHOPaletteName = function(item) {
+        return this.paletteNames[item];
+    }
+
     // ---------------------------------------------------------------
     // Label Widget - PJSR Control
     // A text display widget (non-editable)
@@ -1171,7 +1307,7 @@ function ProcessMastersDialog(engine) {
     this.helpLabel.wordWrapping = true;
     this.helpLabel.useRichText = true;  // Enable HTML tags in text
     this.helpLabel.text = "<p><b>" + this.title + " v" + this.version + "</b> <p>" +
-        "A tool to open WBPP master files, delete the crop_masks and rename the images with their filter name (H .xisf)</p>" +
+        "A tool to open WBPP master files, step through the process including combination, BXT, NXT, SXT and exporting TIF files</p>" +
         "<p>Copyright &copy; " + this.copyright + " " + this.author + "</p>";
 
     // ---------------------------------------------------------------
@@ -1246,21 +1382,16 @@ function ProcessMastersDialog(engine) {
     //   onClick  - Callback function when button is clicked
     //              Inside callback, 'this' refers to the button
     //              Use 'this.dialog' to access parent dialog
+    // Button properties:
+    //   Control.scaledResource(resourcePath) - PJSR Control API
+    //   Loads a DPI-aware resource (icon) from PixInsight's resource system
+    //   Built-in icons use ":/icons/name.png" format
+    //   Names: add, delete, clear, ok, cancel, folder, file, arrow-up, arrow-down
     // ---------------------------------------------------------------
+
+    // Add button
     this.filesAdd_Button = new PushButton(this);
     this.filesAdd_Button.text = "Add";
-
-    // ---------------------------------------------------------------
-    // Control.scaledResource(resourcePath) - PJSR Control API
-    // Loads a DPI-aware resource (icon) from PixInsight's resource system
-    // Built-in icons use ":/icons/name.png" format
-    //
-    // Common built-in icons:
-    //   :/icons/add.png, :/icons/delete.png, :/icons/clear.png
-    //   :/icons/ok.png, :/icons/cancel.png
-    //   :/icons/folder.png, :/icons/file.png
-    //   :/icons/arrow-up.png, :/icons/arrow-down.png
-    // ---------------------------------------------------------------
     this.filesAdd_Button.icon = this.scaledResource(":/icons/add.png");
     this.filesAdd_Button.toolTip = "<p>Add image files to the input images list.</p>";
 
@@ -1272,6 +1403,7 @@ function ProcessMastersDialog(engine) {
     //   - 'this.dialog' refers to the parent Dialog
     //   - Access other widgets via this.dialog.widgetName
     // ---------------------------------------------------------------
+    
     this.filesAdd_Button.onClick = function () {
         // ---------------------------------------------------------------
         // OpenFileDialog - PJSR Dialog Class
@@ -1288,9 +1420,7 @@ function ProcessMastersDialog(engine) {
         // Key Methods:
         //   loadImageFilters() - Set filters to supported image formats
         //   execute()          - Show dialog; returns true if OK clicked
-        //
-        // Related: SaveFileDialog for saving files
-        // ---------------------------------------------------------------
+        
         let ofd = new OpenFileDialog;
         ofd.multipleSelections = true;
         ofd.caption = "Select Images";
@@ -1320,6 +1450,7 @@ function ProcessMastersDialog(engine) {
         }
     };
 
+    // Clear button
     this.filesClear_Button = new PushButton(this);
     this.filesClear_Button.text = "Clear";
     this.filesClear_Button.icon = this.scaledResource(":/icons/clear.png");
@@ -1331,7 +1462,7 @@ function ProcessMastersDialog(engine) {
         this.dialog.engine.inputFiles.length = 0;
     };
 
-
+    // Remove Selected button
     this.filesRemove_Button = new PushButton(this);
     this.filesRemove_Button.text = "Remove Selected";
     this.filesRemove_Button.icon = this.scaledResource(":/icons/delete.png");
@@ -1460,71 +1591,7 @@ function ProcessMastersDialog(engine) {
         this.dialog.engine.runBlurXterminatorCorrectOnly = checked;
     };
 
-    this.runBlurXterminatorFull_CheckBox = new CheckBox(this);
-    this.runBlurXterminatorFull_CheckBox.text = "Run BlurXTerminator (Full)";
-    this.runBlurXterminatorFull_CheckBox.checked = this.engine.runBlurXterminatorFull;
-    this.runBlurXterminatorFull_CheckBox.toolTip = "<p>Enable BlurXterminator (Full).</p>";
-    this.runBlurXterminatorFull_CheckBox.onCheck = function (checked) {
-        this.dialog.engine.runBlurXterminatorFull = checked;
-    };
-
-    this.runSPCC_CheckBox = new CheckBox(this);
-    this.runSPCC_CheckBox.text = "Run SPCC (if RGB image detected)";
-    this.runSPCC_CheckBox.checked = this.engine.runSPCC;
-    this.runSPCC_CheckBox.toolTip = "<p>Enable SPCC.</p>";
-    this.runSPCC_CheckBox.onCheck = function (checked) {
-        this.dialog.engine.runSPCC = checked;
-    };
-
-    this.runLinearFit_CheckBox = new CheckBox(this);
-    this.runLinearFit_CheckBox.text = "Run Linear Fit (if SHO image detected)";
-    this.runLinearFit_CheckBox.checked = this.engine.runLinearFit;
-    this.runLinearFit_CheckBox.toolTip = "<p>Enable Linear Fit.</p>";
-    this.runLinearFit_CheckBox.onCheck = function (checked) {
-        this.dialog.engine.runLinearFit = checked;
-    };
-
-    this.runChannelCombination_CheckBox = new CheckBox(this);
-    this.runChannelCombination_CheckBox.text = "Run Channel Combination (R+G+B or S+H+O)";
-    this.runChannelCombination_CheckBox.checked = this.engine.runChannelCombination;
-    this.runChannelCombination_CheckBox.toolTip = "<p>Enable Channel Combination.</p>";
-    this.runChannelCombination_CheckBox.onCheck = function (checked) {
-        this.dialog.engine.runChannelCombination = checked;
-    };
-
-    this.runNoiseXterminator_CheckBox = new CheckBox(this);
-    this.runNoiseXterminator_CheckBox.text = "Run NoiseXTerminator";
-    this.runNoiseXterminator_CheckBox.checked = this.engine.runNoiseXterminator;
-    this.runNoiseXterminator_CheckBox.toolTip = "<p>Enable NoiseXTerminator.</p>";
-    this.runNoiseXterminator_CheckBox.onCheck = function (checked) {
-        this.dialog.engine.runNoiseXterminator = checked;
-    };
-
-    this.runStarXterminator_CheckBox = new CheckBox(this);
-    this.runStarXterminator_CheckBox.text = "Run StarXterminator";
-    this.runStarXterminator_CheckBox.checked = this.engine.runStarXterminator;
-    this.runStarXterminator_CheckBox.toolTip = "<p>Enable StarXterminator.</p>";
-    this.runStarXterminator_CheckBox.onCheck = function (checked) {
-        this.dialog.engine.runStarXterminator = checked;
-    };
-
-    this.runMultiscaleAdaptiveStretch_CheckBox = new CheckBox(this);
-    this.runMultiscaleAdaptiveStretch_CheckBox.text = "Run MultiscaleAdaptiveStretch";
-    this.runMultiscaleAdaptiveStretch_CheckBox.checked = this.engine.runMultiscaleAdaptiveStretch;
-    this.runMultiscaleAdaptiveStretch_CheckBox.toolTip = "<p>Enable MultiscaleAdaptiveStretch.</p>";
-    this.runMultiscaleAdaptiveStretch_CheckBox.onCheck = function (checked) {
-        this.dialog.engine.runMultiscaleAdaptiveStretch = checked;
-    };
-
-    this.saveTIFFs_CheckBox = new CheckBox(this);
-    this.saveTIFFs_CheckBox.text = "Export TIFFs";
-    this.saveTIFFs_CheckBox.checked = this.engine.saveTIFFs;
-    this.saveTIFFs_CheckBox.toolTip = "<p>Export TIFF copies of processed result windows.</p>";
-    this.saveTIFFs_CheckBox.onCheck = function (checked) {
-        this.dialog.engine.saveTIFFs = checked;
-    };
-
-    // Layout for process options - vertical column of checkboxes
+    // Layout for Channel options - vertical column of checkboxes
     this.channelsOptions_GroupBox = new GroupBox(this);
     this.channelsOptions_GroupBox.title = "Channel Options";
     this.channelsOptions_GroupBox.sizer = new VerticalSizer;
@@ -1534,19 +1601,150 @@ function ProcessMastersDialog(engine) {
     this.channelsOptions_GroupBox.sizer.add(this.runBlurXterminatorCorrectOnly_CheckBox);
     this.channelsOptions_GroupBox.sizer.addStretch();  // Push checkboxes to top
 
+    // Run Channel Combination checkbox
+    this.runRGBChannelCombination_CheckBox = new CheckBox(this);
+    this.runRGBChannelCombination_CheckBox.text = "Run RGB Channel Combination (if R, G & B channels detected)";
+    this.runRGBChannelCombination_CheckBox.checked = this.engine.runRGBChannelCombination;
+    this.runRGBChannelCombination_CheckBox.toolTip = "<p>Enable RGB Channel Combination.</p>";
+    this.runRGBChannelCombination_CheckBox.onCheck = function (checked) {
+        this.dialog.engine.runRGBChannelCombination = checked;
+    };
+
+    // Run Channel Combination checkbox
+    this.runSHOChannelCombination_CheckBox = new CheckBox(this);
+    this.runSHOChannelCombination_CheckBox.text = "Run SHO Channel Combination (if S, H & O channels detected)";
+    this.runSHOChannelCombination_CheckBox.checked = this.engine.runSHOChannelCombination;
+    this.runSHOChannelCombination_CheckBox.toolTip = "<p>Enable Channel Combination.</p>";
+    this.runSHOChannelCombination_CheckBox.onCheck = function (checked) {
+        this.dialog.engine.runSHOChannelCombination = checked;
+    };
+
+    // Run SPCC checkbox
+    this.runSPCC_CheckBox = new CheckBox(this);
+    this.runSPCC_CheckBox.text = "Run SPCC (if RGB image detected)";
+    this.runSPCC_CheckBox.checked = this.engine.runSPCC;
+    this.runSPCC_CheckBox.toolTip = "<p>Enable SPCC.</p>";
+    this.runSPCC_CheckBox.onCheck = function (checked) {
+        this.dialog.engine.runSPCC = checked;
+    };
+
+    // Channel options layout - vertical column of checkboxes
+    this.rgbOptions = new GroupBox(this);
+    this.rgbOptions.title = "RGB Options";
+    this.rgbOptions.sizer = new VerticalSizer;
+    this.rgbOptions.sizer.margin = 6;
+    this.rgbOptions.sizer.spacing = 4;
+    this.rgbOptions.sizer.add(this.runRGBChannelCombination_CheckBox);
+    this.rgbOptions.sizer.add(this.runSPCC_CheckBox);
+    this.rgbOptions.sizer.addStretch();  // Push checkboxes to top
+
+
+    // Run Linear Fit checkbox
+    this.runLinearFit_CheckBox = new CheckBox(this);
+    this.runLinearFit_CheckBox.text = "Run Linear Fit (if SHO image detected)";
+    this.runLinearFit_CheckBox.checked = this.engine.runLinearFit;
+    this.runLinearFit_CheckBox.toolTip = "<p>Enable Linear Fit.</p>";
+    this.runLinearFit_CheckBox.onCheck = function (checked) {
+        this.dialog.engine.runLinearFit = checked;
+    };
+
+    // SHO palette selector
+    this.shoPalette_Label = new Label(this);
+    this.shoPalette_Label.text = "Narrowband Palette:";
+    this.shoPalette_Label.textAlignment = TextAlign_Left;
+    this.shoPalette_ComboBox = new ComboBox(this);
+    // Populate the ComboBox with palette options from this.shoOptions array
+    for (var i = 0; i < this.paletteNames.length; i++) {
+        this.shoPalette_ComboBox.addItem(this.paletteNames[i]);
+    }    
+    this.shoPalette_ComboBox.currentItem = 0; // "SHO" is the default
+    this.shoPalette_ComboBox.toolTip = "<p>Select the narrowband palette order for the combined result.</p>";
+    this.shoPalette_ComboBox.onItemSelected = function (item) {
+        this.dialog.engine.shoPaletteMode = this.dialog.getSHOPaletteName(item);
+    };
+
+    // Channel options layout - vertical column of checkboxes
+    this.shoOptions = new GroupBox(this);
+    this.shoOptions.title = "SHO Options";
+    this.shoOptions.sizer = new VerticalSizer;
+    this.shoOptions.sizer.margin = 6;
+    this.shoOptions.sizer.spacing = 4;
+    this.shoOptions.sizer.add(this.runLinearFit_CheckBox);
+    this.shoOptions.sizer.add(this.runSHOChannelCombination_CheckBox);
+    this.shoOptions.sizer.add(this.shoPalette_Label);
+    this.shoOptions.sizer.add(this.shoPalette_ComboBox);
+    this.shoOptions.sizer.addStretch();  // Push checkboxes to top
+
+    this.shoAndRgbOptionRow = new HorizontalSizer;
+    this.shoAndRgbOptionRow.spacing = 6;
+    this.shoAndRgbOptionRow.add(this.rgbOptions);
+    this.shoAndRgbOptionRow.add(this.shoOptions);
+
+    // Run BlurXTerminator (Full) checkbox
+    this.runBlurXterminatorFull_CheckBox = new CheckBox(this);
+    this.runBlurXterminatorFull_CheckBox.text = "Run BlurXTerminator (Full)";
+    this.runBlurXterminatorFull_CheckBox.checked = this.engine.runBlurXterminatorFull;
+    this.runBlurXterminatorFull_CheckBox.toolTip = "<p>Enable BlurXterminator (Full).</p>";
+    this.runBlurXterminatorFull_CheckBox.onCheck = function (checked) {
+        this.dialog.engine.runBlurXterminatorFull = checked;
+    };
+
+    // Run NoiseXTerminator checkbox
+    this.runNoiseXterminator_CheckBox = new CheckBox(this);
+    this.runNoiseXterminator_CheckBox.text = "Run NoiseXTerminator";
+    this.runNoiseXterminator_CheckBox.checked = this.engine.runNoiseXterminator;
+    this.runNoiseXterminator_CheckBox.toolTip = "<p>Enable NoiseXTerminator.</p>";
+    this.runNoiseXterminator_CheckBox.onCheck = function (checked) {
+        this.dialog.engine.runNoiseXterminator = checked;
+    };
+
+    // Run StarXterminator checkbox
+    this.runStarXterminator_CheckBox = new CheckBox(this);
+    this.runStarXterminator_CheckBox.text = "Run StarXterminator";
+    this.runStarXterminator_CheckBox.checked = this.engine.runStarXterminator;
+    this.runStarXterminator_CheckBox.toolTip = "<p>Enable StarXterminator.</p>";
+    this.runStarXterminator_CheckBox.onCheck = function (checked) {
+        this.dialog.engine.runStarXterminator = checked;
+    };
+
+    // Run MultiscaleAdaptiveStretch checkbox
+    this.runMultiscaleAdaptiveStretch_CheckBox = new CheckBox(this);
+    this.runMultiscaleAdaptiveStretch_CheckBox.text = "Run MultiscaleAdaptiveStretch";
+    this.runMultiscaleAdaptiveStretch_CheckBox.checked = this.engine.runMultiscaleAdaptiveStretch;
+    this.runMultiscaleAdaptiveStretch_CheckBox.toolTip = "<p>Enable MultiscaleAdaptiveStretch.</p>";
+    this.runMultiscaleAdaptiveStretch_CheckBox.onCheck = function (checked) {
+        this.dialog.engine.runMultiscaleAdaptiveStretch = checked;
+    };    
+
+    // Run MultiscaleAdaptiveStretch checkbox
+    this.runStarStretch_CheckBox = new CheckBox(this);
+    this.runStarStretch_CheckBox.text = "Run Star Stretch";
+    this.runStarStretch_CheckBox.checked = this.engine.runStarStretch;
+    this.runStarStretch_CheckBox.toolTip = "<p>Enable Star Stretch.</p>";
+    this.runStarStretch_CheckBox.onCheck = function (checked) {
+        this.dialog.engine.runStarStretch = checked;
+    };
+
+    // Save TIFFs checkbox
+    this.saveTIFFs_CheckBox = new CheckBox(this);
+    this.saveTIFFs_CheckBox.text = "Export TIFFs";
+    this.saveTIFFs_CheckBox.checked = this.engine.saveTIFFs;
+    this.saveTIFFs_CheckBox.toolTip = "<p>Export TIFF copies of processed result windows.</p>";
+    this.saveTIFFs_CheckBox.onCheck = function (checked) {
+        this.dialog.engine.saveTIFFs = checked;
+    };
+
     // Layout for process options - vertical column of checkboxes
     this.processOptions_GroupBox = new GroupBox(this);
     this.processOptions_GroupBox.title = "Process Options";
     this.processOptions_GroupBox.sizer = new VerticalSizer;
     this.processOptions_GroupBox.sizer.margin = 6;
     this.processOptions_GroupBox.sizer.spacing = 4;
-    this.processOptions_GroupBox.sizer.add(this.runChannelCombination_CheckBox);
-    this.processOptions_GroupBox.sizer.add(this.runSPCC_CheckBox);
-    this.processOptions_GroupBox.sizer.add(this.runLinearFit_CheckBox);
     this.processOptions_GroupBox.sizer.add(this.runBlurXterminatorFull_CheckBox);
     this.processOptions_GroupBox.sizer.add(this.runNoiseXterminator_CheckBox);
     this.processOptions_GroupBox.sizer.add(this.runStarXterminator_CheckBox);
     this.processOptions_GroupBox.sizer.add(this.runMultiscaleAdaptiveStretch_CheckBox);
+    this.processOptions_GroupBox.sizer.add(this.runStarStretch_CheckBox);
     this.processOptions_GroupBox.sizer.add(this.saveTIFFs_CheckBox);
     this.processOptions_GroupBox.sizer.addStretch();  // Push checkboxes to top
 
@@ -1594,6 +1792,8 @@ function ProcessMastersDialog(engine) {
     this.sizer.add(this.files_GroupBox);  // GroupBox expands vertically
     this.sizer.addSpacing(4);
     this.sizer.add(this.channelsOptions_GroupBox);  // Channel options section
+    this.sizer.addSpacing(4);
+    this.sizer.add(this.shoAndRgbOptionRow);  // SHO and RGB options side by side
     this.sizer.addSpacing(4);
     this.sizer.add(this.processOptions_GroupBox);  // Process options section
     this.sizer.addSpacing(4);

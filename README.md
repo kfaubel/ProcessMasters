@@ -88,3 +88,27 @@ Commit the changes to GitHub and push.
 ## License
 
 MIT. See `LICENSE`.
+
+## Notes on Hubble Palette Processing
+Yes, because straight SHO results in an overwhelming green cast, astrophotographers use modified PixelMath formulas to blend the channels before applying hue shifts. The goal of a modified SHO PixelMath formula is to bleed some of the dominant Hydrogen-alpha (Green) into the Red and Blue channels. This naturally shifts the image toward gold, copper, and deep blue tones right from the initial combination.Here is the industry-standard modified SHO PixelMath formula for PixInsight to achieve that aesthetic.
+
+### The Modified SHO PixelMath FormulaIn PixInsight, open the PixelMath tool, uncheck "Use a single RGB/K expression", and enter the following formulas into their respective channel tabs:
+- R (Red): (0.75 * Sii) + (0.25 * Ha)
+- G (Green): (0.50 * Ha) + (0.50 * Oiii)
+- B (Blue): Oiii
+
+### This Formula Works
+- Creates Gold & Copper (Red Channel): Mixing \(25\%\) of the bright Hydrogen-alpha data into the Sulfur-II channel shifts the default dull reddish-brown tones into bright, vibrant copper and gold.
+- Suppresses the Green Cast (Green Channel): By cutting the Hydrogen-alpha signal in half and mixing it with \(50\%\) Oxygen-III, you drastically reduce the dominant green. This prevents the green from overpowering the nebula.
+- Boosts the Blues (Blue Channel): Keeping Blue mapped purely to Oxygen-III (or adding a tiny fraction of \(Ha\) if your \(Oiii\) signal is incredibly weak, e.g., (0.85 * Oiii) + (0.15 * Ha)) ensures the outer shell structures pop with a clean, electric blue against the golden core.
+
+### Quick Workflow Tips
+- Linear State: Apply this formula while your Sii, Ha, and Oiii masters are still linear (unstretched) but fully color-calibrated and star-aligned.
+- SCNR Tool: Even with this formula, you may still see a slight green gradient in transition zones. Run the SCNR tool (Green, \(1.00\) amount) right after stretching to instantly turn any remaining green into a clean gold.
+
+## Foraxx Palette Processing
+R = (O^~O)*S + ~(O^~O)*H
+
+G = ((O*H)^~(O*H))*H + ~((O*H)^~(O*H))*O
+
+B = O
